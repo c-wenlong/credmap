@@ -114,13 +114,17 @@ def _statuses(results: list[StoreResult]) -> list[Finding]:
                         Finding(
                             level="info",
                             store=result.store.id,
-                            message=f"credentials exist but the CLI is not installed",
+                            message="credentials exist but the CLI is not installed",
                         )
                     )
     return findings
 
 
-_WARN_NOTE_MARKERS = ("never completed", "unparsable", "is empty", "unreadable", "query failed")
+# Notes that report a problem rather than context. Parse failures no longer
+# need to appear here: they arrive structurally as FoundPath.error. What is
+# left is the one case where a file parsed perfectly and still describes a
+# broken state — an SSO login that registered a client and stopped.
+_WARN_NOTE_MARKERS = ("never completed",)
 
 
 def _notes(results: list[StoreResult]) -> list[Finding]:
@@ -129,20 +133,26 @@ def _notes(results: list[StoreResult]) -> list[Finding]:
         if not result.found:
             continue
         for fp in result.paths:
-            if not fp.note:
-                continue
-            warn = any(marker in fp.note for marker in _WARN_NOTE_MARKERS)
-            findings.append(
-                Finding(
-                    level="warn" if warn else "info",
-                    store=result.store.id,
-                    message=fp.note,
-                    fix=result.store.fix if warn else "",
+            if fp.note:
+                warn = any(marker in fp.note for marker in _WARN_NOTE_MARKERS)
+                findings.append(
+                    Finding(
+                        level="warn" if warn else "info",
+                        store=result.store.id,
+                        message=fp.note,
+                        fix=result.store.fix if warn else "",
+                    )
                 )
-            )
+            # Independent of the note: a file can fail to parse and have
+            # nothing else to say about itself.
             if fp.error:
                 findings.append(
-                    Finding(level="warn", store=result.store.id, message=fp.error)
+                    Finding(
+                        level="warn",
+                        store=result.store.id,
+                        message=f"{display(fp.path)}: {fp.error}",
+                        fix=result.store.fix,
+                    )
                 )
     return findings
 

@@ -20,7 +20,7 @@ def scan_store(store: Store) -> StoreResult:
                 result.paths.append(FoundPath(spec=spec, path=path, exists=False))
                 continue
 
-            profiles, note = parse(path, spec)
+            parsed = parse(path, spec)
             result.paths.append(
                 FoundPath(
                     spec=spec,
@@ -29,8 +29,9 @@ def scan_store(store: Store) -> StoreResult:
                     is_dir=path.is_dir(),
                     mode=st.st_mode & 0o777,
                     size=st.st_size,
-                    profiles=profiles,
-                    note=note,
+                    profiles=parsed.profiles,
+                    note=parsed.note,
+                    error=parsed.error or None,
                 )
             )
     return result

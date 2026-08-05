@@ -510,7 +510,42 @@ def overlay_path() -> Path:
     return config_home() / "credmap" / "registry.toml"
 
 
-def _store_from_toml(sid: str, raw: dict) -> Store:
+def _probe_from_toml(raw: dict) -> Probe | None:
+    argv = raw.get("argv")
+    if not isinstance(argv, list) or not argv:
+        return None
+    try:
+        timeout = int(raw.get("timeout", 5))
+    except (TypeError, ValueError):
+        timeout = 5
+    extract = raw.get("extract")
+    return Probe(
+        argv=tuple(str(a) for a in argv),
+        extract=str(extract) if extract else None,
+        timeout=timeout,
+    )
+
+
+def _bloat_from_toml(raw: list) -> tuple[tuple[str, int], ...]:
+    out = []
+    for entry in raw:
+        if not isinstance(entry, dict) or "path" not in entry:
+            continue
+        try:
+            out.append((str(entry["path"]), int(entry.get("threshold_mb", 500))))
+        except (TypeError, ValueError):
+            continue
+    return tuple(out)
+
+
+def _store_from_toml(sid: str, raw: dict, base: Store | None = None) -> Store:
+    """Build a Store from an overlay entry.
+
+    Anything the entry does not mention is inherited from ``base``, the
+    built-in of the same id. Overriding one field of a shipped store must not
+    silently discard the rest of it — renaming ``aws`` used to drop its
+    liveness probe, its secret_fields and its docs along with the name.
+    """
     paths = tuple(
         PathSpec(
             path=p["path"],
@@ -522,20 +557,38 @@ def _store_from_toml(sid: str, raw: dict) -> Store:
             select=p.get("select"),
             marker=p.get("marker", False),
             multi=p.get("multi", False),
+            identities=p.get("identities"),
         )
         for p in raw.get("paths", [])
+        if isinstance(p, dict) and "path" in p
     )
+
+    probe = base.probe if base else None
+    if isinstance(raw.get("probe"), dict):
+        probe = _probe_from_toml(raw["probe"])
+
+    bloat = base.bloat if base else ()
+    if isinstance(raw.get("bloat"), list):
+        bloat = _bloat_from_toml(raw["bloat"])
+
+    def inherit(key: str, fallback):
+        if key in raw:
+            return raw[key]
+        return getattr(base, key) if base else fallback
+
     return Store(
         id=sid,
-        name=raw.get("name", sid),
-        kind=raw.get("kind", "misc"),
-        paths=paths,
-        aliases=tuple(raw.get("aliases", ())),
-        secret_fields=frozenset(raw.get("secret_fields", ())),
-        id_fields=frozenset(raw.get("id_fields", ())),
-        docs=raw.get("docs", ""),
-        note=raw.get("note", ""),
-        fix=raw.get("fix", ""),
+        name=str(inherit("name", sid)),
+        kind=str(inherit("kind", "misc")),
+        paths=paths or (base.paths if base else ()),
+        aliases=tuple(inherit("aliases", ())),
+        secret_fields=frozenset(inherit("secret_fields", frozenset())),
+        id_fields=frozenset(inherit("id_fields", frozenset())),
+        probe=probe,
+        bloat=bloat,
+        docs=str(inherit("docs", "")),
+        note=str(inherit("note", "")),
+        fix=str(inherit("fix", "")),
     )
 
 
@@ -550,8 +603,14 @@ def load() -> tuple[Store, ...]:
     except (OSError, tomllib.TOMLDecodeError):
         return tuple(stores.values())
     for sid, raw in doc.items():
-        if isinstance(raw, dict) and raw.get("paths"):
-            stores[sid] = _store_from_toml(sid, raw)
+        if not isinstance(raw, dict):
+            continue
+        base = stores.get(sid)
+        # A brand-new store is meaningless without somewhere to look; one that
+        # refines a built-in can inherit that built-in's paths.
+        if not raw.get("paths") and base is None:
+            continue
+        stores[sid] = _store_from_toml(sid, raw, base)
     return tuple(stores.values())
 
 

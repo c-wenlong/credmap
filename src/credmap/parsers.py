@@ -1,11 +1,13 @@
 """Format parsers.
 
-Each parser takes a resolved path plus its spec and returns
-``(profiles, note)``. The note carries store-level context that isn't a
+Each parser takes a resolved path plus its spec and returns a
+:class:`ParseResult`. The ``note`` carries store-level context that isn't a
 profile — "secrets are in the Keychain", "no access token was ever cached".
+The ``error`` carries a failure: the file is there but could not be read or
+understood.
 
 Parsers never raise on malformed input; they return an empty profile list and
-put the reason in the note. A broken credential file should show up in the
+put the reason in ``error``. A broken credential file should show up in the
 scan, not crash it.
 """
 
@@ -14,13 +16,38 @@ from __future__ import annotations
 import configparser
 import json
 import sqlite3
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .model import EXPIRED, UNKNOWN, VALID, PathSpec, Profile
 
-ParseResult = tuple[list[Profile], str]
+
+@dataclass(frozen=True)
+class ParseResult:
+    """What a parser made of one file.
+
+    ``note`` and ``error`` are separate channels on purpose. A note is
+    context — the store is healthy and there is something you should know
+    about it. An error is a failure. Callers that need to tell one from the
+    other must not have to pattern-match on prose: before this split,
+    ``doctor`` decided severity by searching notes for substrings like
+    "unparsable", which silently misclassified any parser that reworded its
+    message.
+    """
+
+    profiles: list[Profile] = field(default_factory=list)
+    note: str = ""
+    error: str = ""
+
+
+def _ok(profiles: list[Profile] | None = None, note: str = "") -> ParseResult:
+    return ParseResult(profiles=profiles or [], note=note)
+
+
+def _fail(error: str, profiles: list[Profile] | None = None) -> ParseResult:
+    return ParseResult(profiles=profiles or [], error=error)
 
 
 # --------------------------------------------------------------------------
@@ -115,7 +142,7 @@ def parse_ini(path: Path, spec: PathSpec) -> ParseResult:
     try:
         cp.read(path, encoding="utf-8")
     except configparser.Error as exc:
-        return [], f"unparsable INI: {exc}"
+        return _fail(f"unparsable INI: {exc}")
     profiles = []
     for section in cp.sections():
         # AWS config writes "[profile foo]" while credentials writes "[foo]",
@@ -129,7 +156,7 @@ def parse_ini(path: Path, spec: PathSpec) -> ParseResult:
                     name, detail = section[len(prefix) :], prefix.strip()
                     break
         profiles.append(Profile(name=name, fields=dict(cp[section]), detail=detail))
-    return profiles, ""
+    return _ok(profiles)
 
 
 def parse_inidir(path: Path, spec: PathSpec) -> ParseResult:
@@ -138,7 +165,7 @@ def parse_inidir(path: Path, spec: PathSpec) -> ParseResult:
     try:
         entries = sorted(p for p in path.iterdir() if p.is_file())
     except OSError as exc:
-        return [], str(exc)
+        return _fail(str(exc))
     for entry in entries:
         name = entry.name
         if name.startswith("config_"):
@@ -154,14 +181,14 @@ def parse_inidir(path: Path, spec: PathSpec) -> ParseResult:
             for key, val in cp[sect].items()
         }
         profiles.append(Profile(name=name, fields=fields))
-    return profiles, ""
+    return _ok(profiles)
 
 
 def parse_json(path: Path, spec: PathSpec) -> ParseResult:
     try:
         doc = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
-        return [], f"unparsable JSON: {exc}"
+        return _fail(f"unparsable JSON: {exc}")
 
     note = ""
     if isinstance(doc, dict):
@@ -172,7 +199,7 @@ def parse_json(path: Path, spec: PathSpec) -> ParseResult:
             where = "macOS Keychain" if helper == "desktop" else f"helper '{helper}'"
             note = f"secrets held in {where}, not in this file"
 
-    return _select(doc, spec.select, path.stem), note
+    return _ok(_select(doc, spec.select, path.stem), note)
 
 
 def parse_yaml(path: Path, spec: PathSpec) -> ParseResult:
@@ -181,12 +208,12 @@ def parse_yaml(path: Path, spec: PathSpec) -> ParseResult:
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
-        return [], f"unparsable YAML: {exc}"
+        return _fail(f"unparsable YAML: {exc}")
 
     note = ""
     if isinstance(doc, dict) and doc.get("current-context"):
         note = f"current context: {doc['current-context']}"
-    return _select(doc, spec.select, path.stem), note
+    return _ok(_select(doc, spec.select, path.stem), note)
 
 
 def parse_sqlite_gcloud(path: Path, spec: PathSpec) -> ParseResult:
@@ -200,7 +227,7 @@ def parse_sqlite_gcloud(path: Path, spec: PathSpec) -> ParseResult:
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except sqlite3.Error as exc:
-        return [], f"unreadable SQLite: {exc}"
+        return _fail(f"unreadable SQLite: {exc}")
 
     try:
         tables = {
@@ -235,11 +262,12 @@ def parse_sqlite_gcloud(path: Path, spec: PathSpec) -> ParseResult:
                     f"opaque id ({expired} expired) — stale cache, not accounts"
                 )
     except sqlite3.Error as exc:
-        return list(profiles.values()), f"query failed: {exc}"
+        # Whatever was read before the failure is still worth reporting.
+        return _fail(f"query failed: {exc}", list(profiles.values()))
     finally:
         con.close()
 
-    return list(profiles.values()), note
+    return _ok(list(profiles.values()), note)
 
 
 def parse_netrc(path: Path, spec: PathSpec) -> ParseResult:
@@ -248,7 +276,7 @@ def parse_netrc(path: Path, spec: PathSpec) -> ParseResult:
     try:
         parsed = netrc.netrc(str(path))
     except (OSError, netrc.NetrcParseError) as exc:
-        return [], f"unparsable netrc: {exc}"
+        return _fail(f"unparsable netrc: {exc}")
     profiles = []
     for machine, entry in parsed.hosts.items():
         login, account, password = entry
@@ -262,7 +290,7 @@ def parse_netrc(path: Path, spec: PathSpec) -> ParseResult:
                 },
             )
         )
-    return profiles, ""
+    return _ok(profiles)
 
 
 def parse_jsondir(path: Path, spec: PathSpec) -> ParseResult:
@@ -277,7 +305,7 @@ def parse_jsondir(path: Path, spec: PathSpec) -> ParseResult:
     try:
         files = sorted(path.glob("*.json"))
     except OSError as exc:
-        return [], str(exc)
+        return _fail(str(exc))
 
     for entry in files:
         try:
@@ -301,7 +329,7 @@ def parse_jsondir(path: Path, spec: PathSpec) -> ParseResult:
     note = ""
     if profiles and not tokens:
         note = "client registrations only, no access token — SSO login never completed"
-    return profiles, note
+    return _ok(profiles, note)
 
 
 def parse_keydir(path: Path, spec: PathSpec) -> ParseResult:
@@ -310,7 +338,7 @@ def parse_keydir(path: Path, spec: PathSpec) -> ParseResult:
     try:
         pubs = sorted(path.glob("*.pub"))
     except OSError as exc:
-        return [], str(exc)
+        return _fail(str(exc))
     for pub in pubs:
         private = pub.with_suffix("")
         try:
@@ -327,7 +355,7 @@ def parse_keydir(path: Path, spec: PathSpec) -> ParseResult:
                 },
             )
         )
-    return profiles, ""
+    return _ok(profiles)
 
 
 def parse_raw(path: Path, spec: PathSpec) -> ParseResult:
@@ -335,15 +363,15 @@ def parse_raw(path: Path, spec: PathSpec) -> ParseResult:
     try:
         value = path.read_text(encoding="utf-8").strip()
     except (OSError, UnicodeDecodeError) as exc:
-        return [], str(exc)
+        return _fail(str(exc))
     if not value:
-        return [], "file is empty"
-    return [Profile(name=path.stem, fields={"token": value})], ""
+        return _fail("file is empty")
+    return _ok([Profile(name=path.stem, fields={"token": value})])
 
 
 def parse_opaque(path: Path, spec: PathSpec) -> ParseResult:
     """Known credential store in a format we deliberately don't crack open."""
-    return [], "present (contents not parsed)"
+    return _ok(note="present (contents not parsed)")
 
 
 PARSERS = {
@@ -363,8 +391,8 @@ PARSERS = {
 def parse(path: Path, spec: PathSpec) -> ParseResult:
     parser = PARSERS.get(spec.fmt)
     if parser is None:
-        return [], f"no parser for format '{spec.fmt}'"
+        return _fail(f"no parser for format '{spec.fmt}'")
     try:
         return parser(path, spec)
     except Exception as exc:  # a bad file must not abort the whole scan
-        return [], f"{type(exc).__name__}: {exc}"
+        return _fail(f"{type(exc).__name__}: {exc}")

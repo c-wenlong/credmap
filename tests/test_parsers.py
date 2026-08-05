@@ -142,7 +142,33 @@ def test_malformed_file_does_not_raise(fake_home):
     result = result_for("kube")
     found = next(fp for fp in result.paths if fp.exists)
     assert found.profiles == []
-    assert found.note, "a broken file should explain itself, not crash the scan"
+    assert found.error, "a broken file should explain itself, not crash the scan"
+
+
+def test_failure_lands_in_error_not_note(fake_home):
+    """The two channels are distinct: prose must not decide severity."""
+    (fake_home / ".kube/config").write_text("{{{ not yaml", encoding="utf-8")
+    found = next(fp for fp in result_for("kube").paths if fp.exists)
+    assert "unparsable YAML" in found.error
+    assert found.note == "", "a parse failure is not a note"
+
+
+def test_context_lands_in_note_not_error(fake_home):
+    """The converse: a healthy store with something to say sets no error."""
+    docker = next(fp for fp in result_for("docker").paths if fp.exists)
+    assert "Keychain" in docker.note
+    assert not docker.error
+
+
+def test_partial_read_keeps_what_it_parsed():
+    """A parser that fails midway still reports the profiles it did get."""
+    from credmap.model import Profile
+    from credmap.parsers import ParseResult, _fail
+
+    partial = _fail("query failed: no such column", [Profile(name="someone")])
+    assert partial.error == "query failed: no such column"
+    assert [p.name for p in partial.profiles] == ["someone"]
+    assert ParseResult().profiles == []
 
 
 def test_scan_covers_every_registered_store(fake_home):

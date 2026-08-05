@@ -37,9 +37,17 @@ number and a project are how you find a credential upstream; masking them makes
 the output useless without making anything safer. That's what `id_fields` is for.
 
 **Parsers never raise.** `parsers.parse` wraps every parser in a catch-all and
-turns failure into `(., note)`. A malformed credential file must appear in the
-scan with an explanation, not abort the run — a broken file is exactly when you
-most need the tool to work.
+turns failure into `ParseResult(error=...)`. A malformed credential file must
+appear in the scan with an explanation, not abort the run — a broken file is
+exactly when you most need the tool to work.
+
+**`note` and `error` are separate channels.** A note is context about a store
+that is fine ("secrets are in the Keychain", "current context: alpha"); an error
+means the file could not be read or understood. Severity is decided by which
+field is set, never by pattern-matching the prose. `doctor` used to grep notes
+for substrings like `"unparsable"`, so any parser that reworded its message
+silently downgraded a broken file to informational. Return `_ok(...)` or
+`_fail(...)`, not a hand-built tuple.
 
 **`scan` is offline and instant.** No network calls, ever, without `--check`.
 Roughly 0.1s of user time today. Anything that shells out belongs in
@@ -86,6 +94,13 @@ fields carry the non-obvious semantics:
 - `select` — where profile names live in a parsed document. `None` = whole file
   is one profile; `"."` = root mapping's keys (gh `hosts.yml`); `"a.b"` = descend,
   then keys, or each item's `name` if it's a list (kube `contexts`).
+
+The user overlay in `registry.toml` can express all of the above, plus `probe`
+and `bloat`. An entry whose id matches a built-in **inherits every field it does
+not mention**, so `[aws] name = "Work AWS"` keeps the probe and the curated field
+lists. Setting a key to an empty value is how you remove an inherited one
+(`probe = {}`). Keep `_store_from_toml` in step when you add a field to `Store` —
+a field the overlay cannot express is a field users cannot fix for themselves.
 
 ## Traps
 

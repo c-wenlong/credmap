@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import textwrap
 
 import pytest
 
@@ -139,6 +140,88 @@ def test_broken_overlay_is_ignored_not_fatal(fake_home):
     assert len(load()) > 0
 
 
+def write_overlay(text: str) -> None:
+    overlay = config_home() / "credmap/registry.toml"
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    overlay.write_text(textwrap.dedent(text), encoding="utf-8")
+
+
+def store(sid: str):
+    return next(s for s in load() if s.id == sid)
+
+
+def test_overriding_a_builtin_keeps_what_it_did_not_mention(fake_home):
+    """Renaming aws must not silently drop its probe, fields or docs."""
+    builtin = store("aws")
+    write_overlay('[aws]\nname = "Work AWS"\n')
+
+    overridden = store("aws")
+    assert overridden.name == "Work AWS"
+    assert overridden.probe == builtin.probe
+    assert overridden.secret_fields == builtin.secret_fields
+    assert overridden.id_fields == builtin.id_fields
+    assert overridden.paths == builtin.paths
+    assert overridden.docs == builtin.docs
+
+
+def test_overlay_can_declare_a_probe(fake_home):
+    write_overlay(
+        """
+        [acme]
+        name = "ACME"
+
+          [acme.probe]
+          argv = ["acme", "whoami", "--profile", "{profile}"]
+          extract = "Account"
+          timeout = 3
+
+          [[acme.paths]]
+          path = "~/.acme/creds.json"
+          fmt = "json"
+          role = "secrets"
+          marker = true
+        """
+    )
+    probe = store("acme").probe
+    assert probe is not None
+    assert probe.argv == ("acme", "whoami", "--profile", "{profile}")
+    assert probe.extract == "Account" and probe.timeout == 3
+
+
+def test_overlay_can_declare_identities_and_bloat(fake_home):
+    write_overlay(
+        """
+        [acme]
+        name = "ACME"
+
+          [[acme.bloat]]
+          path = "~/.acme/logs"
+          threshold_mb = 250
+
+          [[acme.paths]]
+          path = "~/.acme/config"
+          fmt = "ini"
+          role = "config"
+          marker = true
+          identities = true
+        """
+    )
+    acme = store("acme")
+    assert acme.bloat == (("~/.acme/logs", 250),)
+    assert acme.paths[0].has_identities(), "a config path can opt into probing"
+
+
+def test_overlay_can_drop_a_probe_explicitly(fake_home):
+    """Inheritance must not make removal impossible."""
+    write_overlay("[aws]\nprobe = {}\n")
+    assert store("aws").probe is None
+
+
+def test_new_store_still_requires_paths(fake_home):
+    write_overlay('[ghost]\nname = "Nowhere"\n')
+    assert not any(s.id == "ghost" for s in load())
+
+
 # --------------------------------------------------------------------------
 # doctor
 # --------------------------------------------------------------------------
@@ -170,3 +253,17 @@ def test_doctor_reports_keychain_as_info_not_a_problem(fake_home):
 def test_doctor_ignores_stores_that_are_not_present(fake_home):
     findings = diagnose(scan(load()))
     assert not any(f.store == "azure" for f in findings)
+
+
+def test_doctor_reports_a_parse_error_with_no_note(fake_home):
+    """A file can fail to parse and have nothing else to say about itself.
+
+    The error used to be reported only when a note happened to exist beside
+    it, so the most broken files were the quietest.
+    """
+    (fake_home / ".kube/config").write_text("{{{ not yaml", encoding="utf-8")
+    findings = [f for f in diagnose(scan(load())) if f.store == "kube"]
+    broken = [f for f in findings if "unparsable YAML" in f.message]
+    assert broken, "an unparsable file must be reported on its own"
+    assert broken[0].level == "warn"
+    assert "config" in broken[0].message, "say which file"

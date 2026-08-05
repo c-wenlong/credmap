@@ -114,7 +114,25 @@ fix = "acme auth login"
   marker = true
 ```
 
+An entry can also declare a liveness probe for `--check`, and directories worth
+flagging when they outgrow the credentials beside them:
+
+```toml
+[acme.probe]
+argv = ["acme", "whoami", "--profile", "{profile}"]
+extract = "Account"   # JSON key to pull out of stdout
+timeout = 5
+
+[[acme.bloat]]
+path = "~/.acme/logs"
+threshold_mb = 500
+```
+
 Entries merge over the built-ins by id, so you can also override a shipped one.
+An override **inherits every field it doesn't mention** — `[aws] name = "Work
+AWS"` renames the store and keeps its probe, paths and curated field lists.
+Assign an empty value to drop an inherited one (`probe = {}`).
+
 A malformed overlay is ignored rather than fatal. Formats available: `ini`,
 `inidir`, `json`, `yaml`, `sqlite-gcloud`, `netrc`, `jsondir`, `keydir`, `raw`,
 `opaque`.
