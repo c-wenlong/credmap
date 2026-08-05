@@ -1,0 +1,19 @@
+# virtualenv — not portable, absolute paths baked into shebangs and .pth
+.venv/
+
+# python bytecode
+__pycache__/
+*.py[cod]
+
+# test / build artifacts
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# never commit anything that looks like a credential — fixtures are generated
+# in tests/conftest.py, not stored
+registry.toml
+*.pem
+*.key
+.env

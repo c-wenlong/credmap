@@ -1,0 +1,200 @@
+"""A synthetic home directory covering every format the registry can parse.
+
+Fixtures are generated rather than committed: nothing in this repo should look
+like a credential file, to a human or to a secret scanner. Every value below is
+obviously fake and the constants are asserted against in the leak test.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import textwrap
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+# Sentinels. If any of these ever reaches default output, the leak test fails.
+AWS_SECRET = "FAKEwJalrXUtnFEMIKAAABBBCCCDDDEEEFFFGGGH"  # 40 chars, like a real one
+GH_TOKEN = "gho_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0000"
+NETRC_PASSWORD = "FAKE-netrc-password-0123456789"
+HF_TOKEN = "hf_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE00"
+ADC_REFRESH = "1//FAKE-refresh-token-abcdefghijklmnop"
+
+ALL_SECRETS = (AWS_SECRET, GH_TOKEN, NETRC_PASSWORD, HF_TOKEN, ADC_REFRESH)
+
+AWS_KEY_ID = "AKIAFAKEFAKEFAKEFAKE"  # an identifier — must stay visible
+
+
+def _iso(delta_days: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=delta_days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+def _write(path: Path, text: str, mode: int = 0o600) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(text).lstrip(), encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+@pytest.fixture
+def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    # Ensure no real env override leaks into the test.
+    for var in (
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_CONFIG_FILE",
+        "CLOUDSDK_CONFIG",
+        "KUBECONFIG",
+        "DOCKER_CONFIG",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GH_CONFIG_DIR",
+        "NETRC",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    config = home / ".config"
+    cache = home / ".cache"
+
+    # --- AWS: duplicate key across two profiles, plus an SSO session block ---
+    _write(
+        home / ".aws/credentials",
+        f"""
+        [default]
+        aws_access_key_id = {AWS_KEY_ID}
+        aws_secret_access_key = {AWS_SECRET}
+
+        [duplicate-of-default]
+        aws_access_key_id = {AWS_KEY_ID}
+        aws_secret_access_key = {AWS_SECRET}
+        """,
+        mode=0o644,  # deliberately loose, for the permission check
+    )
+    _write(
+        home / ".aws/config",
+        """
+        [default]
+        region = eu-north-1
+
+        [profile with-sso]
+        sso_session = corp
+        sso_account_id = 000000000000
+
+        [sso-session corp]
+        sso_start_url = https://example.awsapps.com/start/
+        """,
+    )
+    # SSO cache holding *only* a client registration: a login that never finished.
+    _write(
+        home / ".aws/sso/cache/abc123.json",
+        json.dumps(
+            {"clientId": "fake-client", "clientSecret": "FAKE", "expiresAt": _iso(30)}
+        ),
+    )
+
+    # --- gcloud: SQLite, not JSON ---
+    gdir = config / "gcloud"
+    gdir.mkdir(parents=True)
+    con = sqlite3.connect(gdir / "credentials.db")
+    con.execute("CREATE TABLE credentials (account_id TEXT PRIMARY KEY, value BLOB)")
+    con.executemany(
+        "INSERT INTO credentials VALUES (?, ?)",
+        [("someone@example.com", b"fake"), ("robot@example.iam.gserviceaccount.com", b"fake")],
+    )
+    con.commit()
+    con.close()
+
+    con = sqlite3.connect(gdir / "access_tokens.db")
+    con.execute(
+        "CREATE TABLE access_tokens (account_id TEXT PRIMARY KEY,"
+        " access_token TEXT, token_expiry TIMESTAMP)"
+    )
+    con.executemany(
+        "INSERT INTO access_tokens VALUES (?, ?, ?)",
+        [
+            ("someone@example.com", "fake", _iso(-5)),  # expired
+            ("deadbeef" * 8, "fake", _iso(-9)),  # opaque id — must be summarised
+        ],
+    )
+    con.commit()
+    con.close()
+
+    _write(gdir / "configurations/config_default", "[core]\nproject = fake-project\n")
+    _write(
+        gdir / "application_default_credentials.json",
+        json.dumps(
+            {
+                "type": "authorized_user",
+                "client_id": "fake.apps.googleusercontent.com",
+                "client_secret": "FAKE-client-secret",
+                "refresh_token": ADC_REFRESH,
+                "quota_project_id": "fake-project",
+            }
+        ),
+    )
+
+    # --- azure: the false positive. Directory exists, marker file does not. ---
+    (home / ".azure/ms-azuretools.vscode-azureresourcegroups").mkdir(parents=True)
+
+    # --- docker: secrets delegated to a credential helper ---
+    _write(
+        home / ".docker/config.json",
+        json.dumps({"auths": {}, "credsStore": "desktop"}),
+    )
+
+    # --- kube: contexts as a list of dicts ---
+    _write(
+        home / ".kube/config",
+        """
+        apiVersion: v1
+        kind: Config
+        current-context: alpha
+        contexts:
+          - name: alpha
+            context:
+              cluster: alpha-cluster
+              user: alpha-user
+          - name: beta
+            context:
+              cluster: beta-cluster
+              user: beta-user
+        """,
+    )
+
+    # --- gh: root-keyed mapping ---
+    _write(
+        config / "gh/hosts.yml",
+        f"""
+        github.com:
+            user: fakeuser
+            oauth_token: {GH_TOKEN}
+            git_protocol: ssh
+        """,
+    )
+
+    # --- netrc ---
+    _write(
+        home / ".netrc",
+        f"""
+        machine api.example.com
+          login fakeuser
+          password {NETRC_PASSWORD}
+        """,
+    )
+
+    # --- ssh key directory ---
+    _write(home / ".ssh/id_ed25519.pub", "ssh-ed25519 AAAAFAKEKEY fake@example.com\n", 0o644)
+    _write(home / ".ssh/id_ed25519", "FAKE PRIVATE KEY\n")
+    (home / ".ssh").chmod(0o700)
+
+    # --- huggingface: a bare token file ---
+    _write(cache / "huggingface/token", HF_TOKEN + "\n")
+
+    return home

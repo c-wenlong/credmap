@@ -1,0 +1,573 @@
+"""The registry: where credentials live, per provider.
+
+This module is data, not behaviour. Adding a provider should mean adding a
+``Store`` here — never touching the scanner. Users extend it without editing
+the package via ``~/.config/credmap/registry.toml`` (see :func:`load`).
+
+Conventions worth knowing before adding an entry:
+
+* ``marker=True`` marks the path whose existence *proves* the store is real.
+  Directory presence is not proof: ``~/.azure`` is created by VS Code
+  extensions that never write a credential.
+* ``role="secrets"`` means the file holds key material; ``config`` means it
+  does not. This drives the permission audit.
+* ``id_fields`` are identifiers that look secret but aren't, and must stay
+  visible — an AWS access key ID is useless without its secret and you need
+  it to find the key in the IAM console.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from pathlib import Path
+
+from .model import PathSpec, Probe, Store
+from .resolve import config_home
+
+# --------------------------------------------------------------------------
+# cloud
+# --------------------------------------------------------------------------
+
+AWS = Store(
+    id="aws",
+    name="AWS CLI",
+    kind="cloud",
+    aliases=("amazon", "iam", "s3"),
+    paths=(
+        PathSpec(
+            "~/.aws/credentials",
+            fmt="ini",
+            role="secrets",
+            env="AWS_SHARED_CREDENTIALS_FILE",
+            marker=True,
+        ),
+        PathSpec(
+            "~/.aws/config",
+            fmt="ini",
+            role="config",
+            env="AWS_CONFIG_FILE",
+            marker=True,
+            identities=True,  # SSO profiles live here, not in credentials
+        ),
+        PathSpec("~/.aws/sso/cache", fmt="jsondir", role="token-cache"),
+        PathSpec("~/.aws/cli/cache", fmt="jsondir", role="token-cache"),
+    ),
+    secret_fields=frozenset(
+        {"aws_secret_access_key", "aws_session_token", "aws_security_token"}
+    ),
+    # SSO wiring is configuration, not key material: the session name, the
+    # role and the portal URL are all safe to print and useless without a token.
+    id_fields=frozenset(
+        {
+            "aws_access_key_id",
+            "sso_account_id",
+            "role_arn",
+            "sso_session",
+            "sso_role_name",
+            "sso_start_url",
+            "sso_region",
+            "sso_registration_scopes",
+        }
+    ),
+    probe=Probe(
+        ("aws", "sts", "get-caller-identity", "--profile", "{profile}", "--output", "json"),
+        extract="Account",
+    ),
+    docs="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html",
+    fix="aws configure           # static IAM keys\naws configure sso      # IAM Identity Center",
+)
+
+GCLOUD = Store(
+    id="gcloud",
+    name="Google Cloud SDK",
+    kind="cloud",
+    aliases=("gcp", "google"),
+    paths=(
+        PathSpec(
+            "{config}/gcloud/credentials.db",
+            fmt="sqlite-gcloud",
+            role="secrets",
+            root_env="CLOUDSDK_CONFIG",
+            rel="credentials.db",
+            marker=True,
+        ),
+        PathSpec(
+            "{config}/gcloud/access_tokens.db",
+            fmt="sqlite-gcloud",
+            role="token-cache",
+            root_env="CLOUDSDK_CONFIG",
+            rel="access_tokens.db",
+        ),
+        PathSpec(
+            "{config}/gcloud/configurations",
+            fmt="inidir",
+            role="config",
+            root_env="CLOUDSDK_CONFIG",
+            rel="configurations",
+        ),
+    ),
+    probe=Probe(("gcloud", "auth", "list", "--format=json"), timeout=10),
+    bloat=(("{config}/gcloud/logs", 500),),
+    docs="https://cloud.google.com/sdk/docs/authorizing",
+    note="OAuth tokens live in SQLite, not a JSON key file",
+    fix="gcloud auth login",
+)
+
+GCLOUD_ADC = Store(
+    id="gcloud-adc",
+    name="Google Application Default Credentials",
+    kind="cloud",
+    aliases=("adc", "gcp-adc", "google-adc"),
+    paths=(
+        PathSpec(
+            "{config}/gcloud/application_default_credentials.json",
+            fmt="json",
+            role="secrets",
+            env="GOOGLE_APPLICATION_CREDENTIALS",
+            root_env="CLOUDSDK_CONFIG",
+            rel="application_default_credentials.json",
+            marker=True,
+        ),
+    ),
+    secret_fields=frozenset({"client_secret", "refresh_token", "private_key"}),
+    id_fields=frozenset({"client_id", "client_email", "project_id", "quota_project_id"}),
+    docs="https://cloud.google.com/docs/authentication/application-default-credentials",
+    note="what SDKs pick up automatically; separate lifecycle from gcloud CLI login",
+    fix="gcloud auth application-default login",
+)
+
+AZURE = Store(
+    id="azure",
+    name="Azure CLI",
+    kind="cloud",
+    aliases=("az", "microsoft"),
+    paths=(
+        PathSpec(
+            "~/.azure/azureProfile.json",
+            fmt="json",
+            role="config",
+            root_env="AZURE_CONFIG_DIR",
+            rel="azureProfile.json",
+            select="subscriptions",
+            marker=True,
+        ),
+        PathSpec(
+            "~/.azure/msal_token_cache.json",
+            fmt="json",
+            role="token-cache",
+            root_env="AZURE_CONFIG_DIR",
+            rel="msal_token_cache.json",
+        ),
+    ),
+    probe=Probe(("az", "account", "show", "--output", "json"), extract="id"),
+    docs="https://learn.microsoft.com/cli/azure/authenticate-azure-cli",
+    note="~/.azure is also created by VS Code extensions — the profile file is the real marker",
+    fix="az login",
+)
+
+DOCTL = Store(
+    id="doctl",
+    name="DigitalOcean",
+    kind="cloud",
+    aliases=("digitalocean", "do"),
+    paths=(
+        PathSpec("{config}/doctl/config.yaml", fmt="yaml", role="secrets", marker=True),
+    ),
+    secret_fields=frozenset({"access-token"}),
+    fix="doctl auth init",
+)
+
+# --------------------------------------------------------------------------
+# infra
+# --------------------------------------------------------------------------
+
+KUBE = Store(
+    id="kube",
+    name="Kubernetes",
+    kind="infra",
+    aliases=("k8s", "kubectl", "kubeconfig"),
+    paths=(
+        PathSpec(
+            "~/.kube/config",
+            fmt="yaml",
+            role="secrets",
+            env="KUBECONFIG",
+            multi=True,
+            select="contexts",
+            marker=True,
+        ),
+    ),
+    secret_fields=frozenset(
+        {"token", "password", "client-key-data", "client-certificate-data"}
+    ),
+    probe=Probe(("kubectl", "config", "current-context")),
+    docs="https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/",
+    fix="kubectl config use-context <name>",
+)
+
+DOCKER = Store(
+    id="docker",
+    name="Docker",
+    kind="infra",
+    aliases=("registry", "dockerhub"),
+    paths=(
+        PathSpec(
+            "~/.docker/config.json",
+            fmt="json",
+            role="secrets",
+            root_env="DOCKER_CONFIG",
+            rel="config.json",
+            select="auths",
+            marker=True,
+        ),
+    ),
+    secret_fields=frozenset({"auth", "password", "identitytoken"}),
+    docs="https://docs.docker.com/reference/cli/docker/login/",
+    note="with a credsStore set, the file holds no secrets — they're in the OS keychain",
+    fix="docker login",
+)
+
+TERRAFORM = Store(
+    id="terraform",
+    name="Terraform",
+    kind="infra",
+    aliases=("tf", "hashicorp"),
+    paths=(
+        PathSpec(
+            "~/.terraform.d/credentials.tfrc.json",
+            fmt="json",
+            role="secrets",
+            select="credentials",
+            marker=True,
+        ),
+        PathSpec("~/.terraformrc", fmt="opaque", role="config"),
+    ),
+    secret_fields=frozenset({"token"}),
+    fix="terraform login",
+)
+
+PULUMI = Store(
+    id="pulumi",
+    name="Pulumi",
+    kind="infra",
+    paths=(
+        PathSpec("~/.pulumi/credentials.json", fmt="json", role="secrets", marker=True),
+    ),
+    secret_fields=frozenset({"accessToken", "accessTokens"}),
+    fix="pulumi login",
+)
+
+VAULT = Store(
+    id="vault",
+    name="HashiCorp Vault",
+    kind="infra",
+    paths=(PathSpec("~/.vault-token", fmt="raw", role="secrets", marker=True),),
+    secret_fields=frozenset({"token"}),
+    fix="vault login",
+)
+
+# --------------------------------------------------------------------------
+# vcs / packages
+# --------------------------------------------------------------------------
+
+SSH = Store(
+    id="ssh",
+    name="SSH keys",
+    kind="vcs",
+    paths=(PathSpec("~/.ssh", fmt="keydir", role="keys", marker=True),),
+    docs="https://www.openssh.com/manual.html",
+    fix="ssh-keygen -t ed25519 -C <comment>",
+)
+
+GNUPG = Store(
+    id="gnupg",
+    name="GnuPG",
+    kind="vcs",
+    aliases=("gpg",),
+    paths=(
+        PathSpec("~/.gnupg", fmt="opaque", role="keys", root_env="GNUPGHOME", rel=".", marker=True),
+    ),
+    fix="gpg --list-secret-keys",
+)
+
+GH = Store(
+    id="gh",
+    name="GitHub CLI",
+    kind="vcs",
+    aliases=("github",),
+    paths=(
+        PathSpec(
+            "{config}/gh/hosts.yml",
+            fmt="yaml",
+            role="secrets",
+            root_env="GH_CONFIG_DIR",
+            rel="hosts.yml",
+            select=".",
+            marker=True,
+        ),
+    ),
+    secret_fields=frozenset({"oauth_token"}),
+    id_fields=frozenset({"user", "git_protocol"}),
+    probe=Probe(("gh", "auth", "status")),
+    fix="gh auth login",
+)
+
+GIT_CREDENTIALS = Store(
+    id="git-credentials",
+    name="Git credential store",
+    kind="vcs",
+    paths=(PathSpec("~/.git-credentials", fmt="opaque", role="secrets", marker=True),),
+    note="plaintext URLs with embedded passwords; prefer a credential helper",
+    fix="git config --global credential.helper osxkeychain",
+)
+
+NETRC = Store(
+    id="netrc",
+    name="netrc",
+    kind="vcs",
+    aliases=("heroku", "wandb", "machine"),
+    paths=(
+        PathSpec("~/.netrc", fmt="netrc", role="secrets", env="NETRC", marker=True),
+        PathSpec("~/.authinfo", fmt="netrc", role="secrets"),
+    ),
+    secret_fields=frozenset({"password", "account"}),
+    id_fields=frozenset({"login"}),
+    note="shared by curl, heroku, wandb and others — one file, many services",
+)
+
+NPM = Store(
+    id="npm",
+    name="npm",
+    kind="pkg",
+    paths=(PathSpec("~/.npmrc", fmt="opaque", role="secrets", marker=True),),
+    fix="npm login",
+)
+
+PYPI = Store(
+    id="pypi",
+    name="PyPI",
+    kind="pkg",
+    aliases=("twine", "pypirc"),
+    paths=(PathSpec("~/.pypirc", fmt="ini", role="secrets", marker=True),),
+    secret_fields=frozenset({"password"}),
+    id_fields=frozenset({"username", "repository"}),
+)
+
+CARGO = Store(
+    id="cargo",
+    name="Cargo / crates.io",
+    kind="pkg",
+    aliases=("rust", "crates"),
+    paths=(
+        PathSpec("~/.cargo/credentials.toml", fmt="opaque", role="secrets", marker=True),
+    ),
+    fix="cargo login",
+)
+
+# --------------------------------------------------------------------------
+# paas / saas
+# --------------------------------------------------------------------------
+
+FIREBASE = Store(
+    id="firebase",
+    name="Firebase CLI",
+    kind="paas",
+    paths=(
+        PathSpec(
+            "{config}/configstore/firebase-tools.json",
+            fmt="json",
+            role="secrets",
+            marker=True,
+        ),
+    ),
+    secret_fields=frozenset({"refresh_token", "access_token", "tokens"}),
+    id_fields=frozenset({"user", "email"}),
+    fix="firebase login",
+)
+
+SUPABASE = Store(
+    id="supabase",
+    name="Supabase CLI",
+    kind="paas",
+    paths=(
+        PathSpec("~/.supabase/access-token", fmt="raw", role="secrets", marker=True),
+        PathSpec("~/.supabase", fmt="opaque", role="config"),
+    ),
+    fix="supabase login",
+)
+
+VERCEL = Store(
+    id="vercel",
+    name="Vercel",
+    kind="paas",
+    paths=(
+        PathSpec(
+            "~/Library/Application Support/com.vercel.cli/auth.json",
+            fmt="json",
+            role="secrets",
+            marker=True,
+        ),
+        PathSpec("{config}/vercel/auth.json", fmt="json", role="secrets", marker=True),
+    ),
+    secret_fields=frozenset({"token"}),
+    fix="vercel login",
+)
+
+FLY = Store(
+    id="fly",
+    name="Fly.io",
+    kind="paas",
+    aliases=("flyctl",),
+    paths=(PathSpec("~/.fly/config.yml", fmt="yaml", role="secrets", marker=True),),
+    secret_fields=frozenset({"access_token"}),
+    fix="fly auth login",
+)
+
+STRIPE = Store(
+    id="stripe",
+    name="Stripe CLI",
+    kind="paas",
+    paths=(PathSpec("{config}/stripe/config.toml", fmt="opaque", role="secrets", marker=True),),
+    fix="stripe login",
+)
+
+CLOUDFLARE = Store(
+    id="wrangler",
+    name="Cloudflare Wrangler",
+    kind="paas",
+    aliases=("cloudflare", "cf"),
+    paths=(
+        PathSpec("{config}/.wrangler/config/default.toml", fmt="opaque", role="secrets", marker=True),
+        PathSpec("~/.wrangler/config/default.toml", fmt="opaque", role="secrets", marker=True),
+    ),
+    fix="wrangler login",
+)
+
+# --------------------------------------------------------------------------
+# ai
+# --------------------------------------------------------------------------
+
+HUGGINGFACE = Store(
+    id="huggingface",
+    name="Hugging Face",
+    kind="ai",
+    aliases=("hf",),
+    paths=(
+        PathSpec("{cache}/huggingface/token", fmt="raw", role="secrets", marker=True),
+        PathSpec("{config}/huggingface/token", fmt="raw", role="secrets", marker=True),
+    ),
+    secret_fields=frozenset({"token"}),
+    fix="huggingface-cli login",
+)
+
+CLAUDE = Store(
+    id="claude",
+    name="Claude Code",
+    kind="ai",
+    aliases=("anthropic",),
+    paths=(PathSpec("~/.claude/.credentials.json", fmt="json", role="secrets", marker=True),),
+    secret_fields=frozenset({"accessToken", "refreshToken"}),
+    fix="claude login",
+)
+
+
+BUILTIN: tuple[Store, ...] = (
+    AWS,
+    GCLOUD,
+    GCLOUD_ADC,
+    AZURE,
+    DOCTL,
+    KUBE,
+    DOCKER,
+    TERRAFORM,
+    PULUMI,
+    VAULT,
+    SSH,
+    GNUPG,
+    GH,
+    GIT_CREDENTIALS,
+    NETRC,
+    NPM,
+    PYPI,
+    CARGO,
+    FIREBASE,
+    SUPABASE,
+    VERCEL,
+    FLY,
+    STRIPE,
+    CLOUDFLARE,
+    HUGGINGFACE,
+    CLAUDE,
+)
+
+
+# --------------------------------------------------------------------------
+# user overlay
+# --------------------------------------------------------------------------
+
+
+def overlay_path() -> Path:
+    return config_home() / "credmap" / "registry.toml"
+
+
+def _store_from_toml(sid: str, raw: dict) -> Store:
+    paths = tuple(
+        PathSpec(
+            path=p["path"],
+            fmt=p.get("fmt", "opaque"),
+            role=p.get("role", "config"),
+            env=p.get("env"),
+            root_env=p.get("root_env"),
+            rel=p.get("rel"),
+            select=p.get("select"),
+            marker=p.get("marker", False),
+            multi=p.get("multi", False),
+        )
+        for p in raw.get("paths", [])
+    )
+    return Store(
+        id=sid,
+        name=raw.get("name", sid),
+        kind=raw.get("kind", "misc"),
+        paths=paths,
+        aliases=tuple(raw.get("aliases", ())),
+        secret_fields=frozenset(raw.get("secret_fields", ())),
+        id_fields=frozenset(raw.get("id_fields", ())),
+        docs=raw.get("docs", ""),
+        note=raw.get("note", ""),
+        fix=raw.get("fix", ""),
+    )
+
+
+def load() -> tuple[Store, ...]:
+    """Built-in stores, with any user overlay merged over them by id."""
+    stores = {s.id: s for s in BUILTIN}
+    path = overlay_path()
+    if not path.is_file():
+        return tuple(stores.values())
+    try:
+        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return tuple(stores.values())
+    for sid, raw in doc.items():
+        if isinstance(raw, dict) and raw.get("paths"):
+            stores[sid] = _store_from_toml(sid, raw)
+    return tuple(stores.values())
+
+
+def find(stores: tuple[Store, ...], query: str) -> list[Store]:
+    """Fuzzy lookup by id, alias, name or kind — ranked exact-first."""
+    q = query.strip().lower()
+    exact = [s for s in stores if q == s.id or q in s.aliases]
+    partial = [
+        s
+        for s in stores
+        if s not in exact
+        and (
+            q in s.id
+            or q in s.name.lower()
+            or q == s.kind
+            or any(q in a for a in s.aliases)
+        )
+    ]
+    return exact + partial

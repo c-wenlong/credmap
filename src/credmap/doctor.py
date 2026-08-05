@@ -1,0 +1,205 @@
+"""Anomaly detection over a completed scan.
+
+Every check here exists because a real machine exhibited the problem and the
+filesystem alone did not make it obvious.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import datetime, timezone
+
+from .model import DEAD, EXPIRED, NO_CLI, Finding, StoreResult
+from .parsers import parse_timestamp
+from .resolve import display, expand
+from .scan import dir_size
+
+
+def _ago(raw: str | None) -> str:
+    dt = parse_timestamp(raw)
+    if dt is None:
+        return ""
+    delta = datetime.now(timezone.utc) - dt
+    days = abs(delta.days)
+    if days >= 1:
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    hours = abs(delta.seconds) // 3600
+    return f"{hours} hour{'s' if hours != 1 else ''} ago" if hours else "just now"
+
+
+def _duplicates(results: list[StoreResult]) -> list[Finding]:
+    """The same secret pasted into several profiles is one credential, not many."""
+    index: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for result in results:
+        for fp in result.paths:
+            # Token caches legitimately repeat the client secret that minted
+            # them; only durable key material counts as a real duplicate.
+            if fp.spec.role != "secrets":
+                continue
+            for prof in fp.profiles:
+                for value in prof.secret_values(result.store):
+                    index[value].append((result.store.id, prof.name))
+
+    findings = []
+    for uses in index.values():
+        if len(uses) < 2:
+            continue
+        where = ", ".join(f"{sid}:{name}" for sid, name in uses)
+        findings.append(
+            Finding(
+                level="warn",
+                store=uses[0][0],
+                message=f"one secret is shared by {len(uses)} profiles ({where})",
+                fix="these are the same credential — revoking it breaks all of them",
+            )
+        )
+    return findings
+
+
+def _permissions(results: list[StoreResult]) -> list[Finding]:
+    findings = []
+    for result in results:
+        if not result.found:
+            continue
+        for fp in result.paths:
+            if not fp.exists or fp.mode is None:
+                continue
+            # A cached access token is as sensitive as the key that minted it.
+            if fp.spec.role not in ("secrets", "keys", "token-cache"):
+                continue
+            if fp.mode & 0o077:
+                target = "chmod 700" if fp.is_dir else "chmod 600"
+                findings.append(
+                    Finding(
+                        level="warn",
+                        store=result.store.id,
+                        message=(
+                            f"{display(fp.path)} is mode {fp.mode:04o} — "
+                            "readable by group or others"
+                        ),
+                        fix=f"{target} {display(fp.path)}",
+                    )
+                )
+    return findings
+
+
+def _statuses(results: list[StoreResult]) -> list[Finding]:
+    findings = []
+    for result in results:
+        for fp in result.paths:
+            for prof in fp.profiles:
+                if prof.status == DEAD:
+                    detail = f" — {prof.detail}" if prof.detail else ""
+                    findings.append(
+                        Finding(
+                            level="error",
+                            store=result.store.id,
+                            message=f"profile '{prof.name}' is not accepted{detail}",
+                            fix=result.store.fix,
+                        )
+                    )
+                elif prof.status == EXPIRED:
+                    when = _ago(prof.expires_at)
+                    suffix = f" ({when})" if when else ""
+                    findings.append(
+                        Finding(
+                            level="warn",
+                            store=result.store.id,
+                            message=f"'{prof.name}' token expired{suffix}",
+                            fix=result.store.fix,
+                        )
+                    )
+                elif prof.status == NO_CLI:
+                    findings.append(
+                        Finding(
+                            level="info",
+                            store=result.store.id,
+                            message=f"credentials exist but the CLI is not installed",
+                        )
+                    )
+    return findings
+
+
+_WARN_NOTE_MARKERS = ("never completed", "unparsable", "is empty", "unreadable", "query failed")
+
+
+def _notes(results: list[StoreResult]) -> list[Finding]:
+    findings = []
+    for result in results:
+        if not result.found:
+            continue
+        for fp in result.paths:
+            if not fp.note:
+                continue
+            warn = any(marker in fp.note for marker in _WARN_NOTE_MARKERS)
+            findings.append(
+                Finding(
+                    level="warn" if warn else "info",
+                    store=result.store.id,
+                    message=fp.note,
+                    fix=result.store.fix if warn else "",
+                )
+            )
+            if fp.error:
+                findings.append(
+                    Finding(level="warn", store=result.store.id, message=fp.error)
+                )
+    return findings
+
+
+def _bloat(results: list[StoreResult]) -> list[Finding]:
+    findings = []
+    for result in results:
+        if not result.found:
+            continue
+        for template, threshold_mb in result.store.bloat:
+            path = expand(template)
+            if not path.is_dir():
+                continue
+            size = dir_size(path)
+            if size > threshold_mb * 1024 * 1024:
+                findings.append(
+                    Finding(
+                        level="info",
+                        store=result.store.id,
+                        message=(
+                            f"{display(path)} is {size / 1024 / 1024 / 1024:.1f} GB "
+                            "of logs, not credentials"
+                        ),
+                        fix=f"rm -rf {display(path)}/*",
+                    )
+                )
+    return findings
+
+
+def _empty(results: list[StoreResult]) -> list[Finding]:
+    findings = []
+    for result in results:
+        if not result.found or result.profiles or result.notes:
+            continue
+        findings.append(
+            Finding(
+                level="info",
+                store=result.store.id,
+                message="store exists but no profiles were parsed from it",
+            )
+        )
+    return findings
+
+
+def diagnose(results: list[StoreResult]) -> list[Finding]:
+    findings: list[Finding] = []
+    for check in (_statuses, _duplicates, _notes, _permissions, _bloat, _empty):
+        findings.extend(check(results))
+
+    # The same profile can appear in two files of one store (AWS 'default'
+    # lives in both credentials and config); report it once.
+    seen: set[tuple[str, str, str]] = set()
+    unique = []
+    for finding in findings:
+        key = (finding.level, finding.store, finding.message)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(finding)
+    return unique
