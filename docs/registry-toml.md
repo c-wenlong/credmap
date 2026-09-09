@@ -49,8 +49,8 @@ and cannot be set any other way.
 | `probe` | table | none |
 | `bloat` | array of tables | none |
 
-Arrays must be arrays. `aliases = "acme"` is accepted and becomes the four
-aliases `a`, `c`, `m`, `e`.
+A bare string where an array is expected (`aliases = "acme"`) is accepted
+and treated as a one-element list.
 
 ### `[[paths]]` keys
 
@@ -113,8 +113,10 @@ aliases = []
 docs = ""
 ```
 
-`paths = []` does not drop the inherited paths; an empty list falls back to
-the built-in's list. To change a built-in's paths, list the full set you want.
+`paths = []` removes the store from the registry entirely, which is the way
+to hide a built-in you never use. To change a built-in's paths, list the
+full set you want; a `paths` key that is present replaces, one that is
+absent inherits.
 
 ## Safety
 
@@ -123,5 +125,7 @@ is curated: any field whose name looks secret is masked. Add identifiers you
 need to see to `id_fields` rather than relying on the heuristic.
 
 The overlay can point credmap at any readable file and can declare any probe
-command. It is your own file with your own permissions, so this is the same
-trust as your shell profile.
+command, so it carries the same trust as your shell profile. A
+`registry.toml` that is writable by group or others is ignored, and a
+warning is printed to stderr once per run saying so. Keep the directory
+writable only by you as well; the directory itself is not checked.

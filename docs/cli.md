@@ -39,7 +39,7 @@ credmap show aws --reveal
 |---|---|
 | 0 | Success. `doctor` returns 0 when nothing is at `error` level, so warnings and info alone do not fail a pre-flight check. |
 | 1 | `doctor` found an `error`-level finding. Today that means a profile probed with `--check` was rejected by its provider. |
-| 2 | `where` or `show` matched nothing, or argparse rejected a flag. An unknown first token becomes `scan <token>`, which argparse rejects with the same code. |
+| 2 | `where` or `show` matched nothing, or argparse rejected a flag. A first token that names a store (`credmap aws`) is rewritten to `where aws`; any other unknown first token becomes `scan <token>`, which argparse rejects with the same code. |
 | 130 | Interrupted with Ctrl-C. |
 
 A closed stdout pipe (`credmap | head`) is swallowed and exits 0.

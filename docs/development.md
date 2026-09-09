@@ -6,7 +6,7 @@
 | Runtime dependency | PyYAML 6+ |
 | Build backend | hatchling, wheel from `src/credmap` |
 | Package manager | uv |
-| Tests | pytest, 87 tests, about 0.4 s |
+| Tests | pytest, 216 tests, about 5 s (the liveness tests run stub CLIs with real timeouts) |
 
 ```bash
 uv sync                      # after a fresh clone or a move; the venv is not portable
@@ -49,3 +49,10 @@ transcript. Any new renderer must be added to its `_all_output()` list.
 ## Releasing
 
 See [releasing.md](releasing.md).
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs `uv sync --frozen`, the suite and `uv build`
+on Linux and macOS with Python 3.11 and 3.13 for every push to `main` and
+every pull request. `uv.lock` must be committed in sync with `pyproject.toml`
+or the frozen sync fails.

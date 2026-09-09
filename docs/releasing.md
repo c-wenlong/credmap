@@ -22,7 +22,7 @@ the repo goes public, and do not run a Homebrew tap.** The reasoning is in
 2. **Decide visibility.** Public unlocks PyPI and removes the access-token bootstrap. Private is fine and flake-only.
 3. **Fix the secret leaks in [known-issues.md](known-issues.md#secret-leaks).** A release that prints a credential on a malformed file should not be the first one people install.
 4. **`flake.nix` is in the repo** (reproduced below). After changing it, run `nix build` and commit the regenerated `flake.lock`.
-5. If public: rename the distribution to `credmap-cli` in `pyproject.toml`, add the metadata block below, register a pending trusted publisher on PyPI, and create the `pypi` environment in the GitHub repo settings. Neither PyPI step can be done from a workflow.
+5. **PyPI is wired but not registered.** `pyproject.toml` already carries the `credmap-cli` name and metadata, and `.github/workflows/release.yml` publishes on tag. Two manual steps remain and neither can be done from a workflow: register a pending Trusted Publisher on PyPI (project `credmap-cli`, owner `c-wenlong`, repo `credmap`, workflow `release.yml`, environment `pypi`) and create the `pypi` environment in the GitHub repo settings. Until then the `publish` job fails and the GitHub release still succeeds.
 
 ## Cutting a release
 
@@ -40,7 +40,7 @@ git push && git push --tags
 What fires:
 
 - **Nix**: nothing. The tag exists to be pinned. Consumers edit their input and run `nix flake update credmap`.
-- **PyPI** (public repo): the workflow builds with `uv build`, checks the tag against both version literals, publishes with Trusted Publishing and PEP 740 attestations, and creates a GitHub release with the artifacts attached.
+- **GitHub Actions**: `release.yml` runs the suite, checks the tag against both version literals, builds with `uv build`, creates a GitHub release with the sdist and wheel attached, and publishes to PyPI with Trusted Publishing and PEP 740 attestations. `ci.yml` runs the suite on every push and pull request on Linux and macOS, Python 3.11 and 3.13.
 
 Then on the author's machine: make the dotfiles edits in
 [install.md](install.md#with-nix-recommended-for-nix-darwin-and-home-manager-users),
@@ -122,7 +122,9 @@ Notes:
 - The flake never reads `uv.lock`. uv stays the local dev tool; Nix resolves PyYAML from nixpkgs. uv2nix would add three inputs to solve a lockfile-fidelity problem a one-dependency project does not have.
 - Do not switch to `hatch-vcs`. A source tarball has no `.git` for the tag to be read from, and the derivation reads the version out of `pyproject.toml`.
 
-## PyPI metadata (public repo only)
+## PyPI metadata
+
+Already in `pyproject.toml`; reproduced for reference.
 
 ```toml
 [build-system]
@@ -174,7 +176,9 @@ with project `credmap-cli`, owner `c-wenlong`, repository `credmap`, workflow
 `release.yml`, environment `pypi`. The name is not reserved until the first
 successful publish.
 
-## `.github/workflows/release.yml` (public repo only)
+## `.github/workflows/release.yml`
+
+Already in the repo; reproduced for reference.
 
 ```yaml
 name: Release

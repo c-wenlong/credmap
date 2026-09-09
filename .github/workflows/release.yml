@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v9
+      # Guards the three places the version lives: the tag, pyproject.toml,
+      # and src/credmap/__init__.py.
+      - name: Version matches tag
+        run: |
+          test "v$(uv version --short)" = "$GITHUB_REF_NAME"
+          grep -q "__version__ = \"$(uv version --short)\"" src/credmap/__init__.py
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+      - run: uv build --no-sources
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --repo "$GITHUB_REPOSITORY" --generate-notes dist/*
+
+  # Needs a pending Trusted Publisher registered on PyPI for credmap-cli
+  # (owner c-wenlong, repo credmap, workflow release.yml, environment pypi)
+  # and a `pypi` environment in the GitHub repo settings. Until both exist
+  # this job fails and the GitHub release above still succeeds.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/credmap-cli
+    permissions:
+      id-token: write   # Trusted Publishing and PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.2

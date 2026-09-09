@@ -3,6 +3,11 @@
 Fixtures are generated rather than committed: nothing in this repo should look
 like a credential file, to a human or to a secret scanner. Every value below is
 obviously fake and the constants are asserted against in the leak test.
+
+The provider prefixes are deliberately broken -- ``ghox_`` and ``hfx_`` rather
+than ``gho_`` and ``hf_`` -- so that gitleaks, trufflehog and GitHub push
+protection do not match this file. The lengths are kept, because what these
+sentinels exercise is masking, and masking is a function of length.
 """
 
 from __future__ import annotations
@@ -17,9 +22,9 @@ import pytest
 
 # Sentinels. If any of these ever reaches default output, the leak test fails.
 AWS_SECRET = "FAKEwJalrXUtnFEMIKAAABBBCCCDDDEEEFFFGGGH"  # 40 chars, like a real one
-GH_TOKEN = "gho_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0000"
+GH_TOKEN = "ghox_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE000"  # length of a real one, prefix broken
 NETRC_PASSWORD = "FAKE-netrc-password-0123456789"
-HF_TOKEN = "hf_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE00"
+HF_TOKEN = "hfx_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0"  # length of a real one, prefix broken
 ADC_REFRESH = "1//FAKE-refresh-token-abcdefghijklmnop"
 
 # Sentinels that live in a *parseable* field, so `show --reveal` can print them.

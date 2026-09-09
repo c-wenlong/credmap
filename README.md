@@ -19,6 +19,27 @@ mutation stays with each provider's own CLI.
 
 ## Install
 
+With Nix, pin a release tag as a flake input and add the package to your
+list; `nix run github:c-wenlong/credmap` works for a one-off:
+
+```nix
+inputs.credmap = {
+  url = "github:c-wenlong/credmap/v0.1.1";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+# then, in home.packages or environment.systemPackages:
+inputs.credmap.packages.${pkgs.stdenv.hostPlatform.system}.default
+```
+
+From PyPI, once a release has been published there (the distribution is
+`credmap-cli`, the command is `credmap`):
+
+```bash
+uv tool install credmap-cli
+```
+
+From a checkout:
+
 ```bash
 git clone https://github.com/c-wenlong/credmap
 uv tool install ./credmap
@@ -27,6 +48,9 @@ uv tool install ./credmap
 That puts `credmap` on your PATH at `~/.local/bin/credmap`. The install is a
 copy, not a link — re-run it with `--force` after changing the source. For a
 live-editing install, use `uv tool install -e .` from this directory instead.
+
+See [docs/install.md](docs/install.md) for upgrading, nix-darwin wiring, and
+why there is no Homebrew tap.
 
 ## Commands
 

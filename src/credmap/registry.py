@@ -22,7 +22,7 @@ import tomllib
 from pathlib import Path
 
 from .model import PathSpec, Probe, Store
-from .resolve import config_home
+from .resolve import config_home, display
 
 # --------------------------------------------------------------------------
 # cloud
@@ -67,6 +67,12 @@ AWS = Store(
             "sso_start_url",
             "sso_region",
             "sso_registration_scopes",
+            # A command line, a file path and a label. None of the three can
+            # hold key material, and all three are what you need to see to
+            # work out where a profile actually gets its credentials from.
+            "credential_process",
+            "web_identity_token_file",
+            "role_session_name",
         }
     ),
     probe=Probe(
@@ -506,8 +512,48 @@ BUILTIN: tuple[Store, ...] = (
 # --------------------------------------------------------------------------
 
 
+# Why the last load() ignored the overlay, for the CLI to print once on
+# stderr. Empty when the overlay was absent, or read normally.
+OVERLAY_WARNING = ""
+
+
 def overlay_path() -> Path:
     return config_home() / "credmap" / "registry.toml"
+
+
+def _unsafe_overlay(path: Path) -> str:
+    """Why this overlay must not be trusted, or "" if it is fine.
+
+    The overlay names files to read and, under ``--check``, argv to execute.
+    If anyone but the owner can write it, that is arbitrary file read into
+    stdout and arbitrary execution as the owner, from a file nobody looks at.
+    Refusing to read it is cheap; the alternative is trusting the mode.
+    """
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        return ""
+    if mode & 0o022:
+        return (
+            f"ignoring {display(path)}: mode {mode:04o} is writable by group "
+            "or others, and this file names paths to read and commands to run"
+        )
+    return ""
+
+
+def _as_list(value: object) -> list[str]:
+    """Coerce a TOML value to a list of strings.
+
+    A bare string is one element, not one element per character:
+    ``aliases = "acme"`` used to iterate into the four aliases a, c, m, e.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(v) for v in value]
+    return [str(value)]
 
 
 def _probe_from_toml(raw: dict) -> Probe | None:
@@ -545,23 +591,31 @@ def _store_from_toml(sid: str, raw: dict, base: Store | None = None) -> Store:
     built-in of the same id. Overriding one field of a shipped store must not
     silently discard the rest of it — renaming ``aws`` used to drop its
     liveness probe, its secret_fields and its docs along with the name.
+
+    Mentioning a key with an empty value is how you remove an inherited one,
+    and that has to hold for ``paths`` as well: ``paths = []`` means "look
+    nowhere", not "fall back to the built-in list I just tried to replace".
     """
-    paths = tuple(
-        PathSpec(
-            path=p["path"],
-            fmt=p.get("fmt", "opaque"),
-            role=p.get("role", "config"),
-            env=p.get("env"),
-            root_env=p.get("root_env"),
-            rel=p.get("rel"),
-            select=p.get("select"),
-            marker=p.get("marker", False),
-            multi=p.get("multi", False),
-            identities=p.get("identities"),
+    if "paths" in raw:
+        declared = raw["paths"] if isinstance(raw["paths"], list) else []
+        paths = tuple(
+            PathSpec(
+                path=p["path"],
+                fmt=p.get("fmt", "opaque"),
+                role=p.get("role", "config"),
+                env=p.get("env"),
+                root_env=p.get("root_env"),
+                rel=p.get("rel"),
+                select=p.get("select"),
+                marker=p.get("marker", False),
+                multi=p.get("multi", False),
+                identities=p.get("identities"),
+            )
+            for p in declared
+            if isinstance(p, dict) and "path" in p
         )
-        for p in raw.get("paths", [])
-        if isinstance(p, dict) and "path" in p
-    )
+    else:
+        paths = base.paths if base else ()
 
     probe = base.probe if base else None
     if isinstance(raw.get("probe"), dict):
@@ -580,10 +634,10 @@ def _store_from_toml(sid: str, raw: dict, base: Store | None = None) -> Store:
         id=sid,
         name=str(inherit("name", sid)),
         kind=str(inherit("kind", "misc")),
-        paths=paths or (base.paths if base else ()),
-        aliases=tuple(inherit("aliases", ())),
-        secret_fields=frozenset(inherit("secret_fields", frozenset())),
-        id_fields=frozenset(inherit("id_fields", frozenset())),
+        paths=paths,
+        aliases=tuple(_as_list(inherit("aliases", ()))),
+        secret_fields=frozenset(_as_list(inherit("secret_fields", frozenset()))),
+        id_fields=frozenset(_as_list(inherit("id_fields", frozenset()))),
         probe=probe,
         bloat=bloat,
         docs=str(inherit("docs", "")),
@@ -594,29 +648,49 @@ def _store_from_toml(sid: str, raw: dict, base: Store | None = None) -> Store:
 
 def load() -> tuple[Store, ...]:
     """Built-in stores, with any user overlay merged over them by id."""
+    global OVERLAY_WARNING
+    OVERLAY_WARNING = ""
+
     stores = {s.id: s for s in BUILTIN}
     path = overlay_path()
     if not path.is_file():
         return tuple(stores.values())
-    try:
-        doc = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
+
+    unsafe = _unsafe_overlay(path)
+    if unsafe:
+        OVERLAY_WARNING = unsafe
         return tuple(stores.values())
+
+    try:
+        # Read bytes and let tomllib decode: a file that is not UTF-8 raises
+        # UnicodeDecodeError, and read_text() raised it out here where nothing
+        # caught it, so one stray byte crashed every command.
+        with path.open("rb") as handle:
+            doc = tomllib.load(handle)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return tuple(stores.values())
+
     for sid, raw in doc.items():
         if not isinstance(raw, dict):
             continue
-        base = stores.get(sid)
-        # A brand-new store is meaningless without somewhere to look; one that
-        # refines a built-in can inherit that built-in's paths.
-        if not raw.get("paths") and base is None:
+        store = _store_from_toml(sid, raw, stores.get(sid))
+        # A store with nowhere to look is meaningless, whether it is new or an
+        # override that dropped the inherited paths with `paths = []`. Drop it
+        # entirely rather than keep a store that can never be found.
+        if not store.paths:
+            stores.pop(sid, None)
             continue
-        stores[sid] = _store_from_toml(sid, raw, base)
+        stores[sid] = store
     return tuple(stores.values())
 
 
 def find(stores: tuple[Store, ...], query: str) -> list[Store]:
     """Fuzzy lookup by id, alias, name or kind — ranked exact-first."""
     q = query.strip().lower()
+    # An empty query is a substring of every id, so it used to match the whole
+    # registry. Nothing is a better answer than everything.
+    if not q:
+        return []
     exact = [s for s in stores if q == s.id or q in s.aliases]
     partial = [
         s

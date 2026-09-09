@@ -1,16 +1,42 @@
 [project]
-name = "credmap"
-version = "0.1.1"
+# The distribution is credmap-cli because "credmap" on PyPI is held by an
+# unrelated 2022 upload. The import package and the command are both credmap.
+name = "credmap-cli"
+version = "0.1.2"
 description = "Read-only discovery for credential stores scattered across your machine"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Kai Chen" }]
+keywords = ["credentials", "secrets", "cli", "discovery", "aws", "gcloud", "kubeconfig"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Utilities",
+]
 dependencies = ["PyYAML>=6.0"]
 
 [project.scripts]
 credmap = "credmap.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/c-wenlong/credmap"
+Documentation = "https://github.com/c-wenlong/credmap/tree/main/docs"
+Issues = "https://github.com/c-wenlong/credmap/issues"
+Changelog = "https://github.com/c-wenlong/credmap/releases"
+
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

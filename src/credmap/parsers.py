@@ -16,6 +16,7 @@ from __future__ import annotations
 import configparser
 import json
 import sqlite3
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -196,10 +197,17 @@ def _select(doc: Any, select: str | None, stem: str) -> list[Profile]:
 
 def parse_ini(path: Path, spec: PathSpec) -> ParseResult:
     cp = configparser.RawConfigParser()
+    # Not cp.read(): it swallows OSError and returns the list of files it
+    # managed to read, so a permission-denied ~/.aws/credentials came back as
+    # a successful parse with zero profiles — indistinguishable from an empty
+    # file. Open it ourselves so the failure has somewhere to go.
     try:
-        cp.read(path, encoding="utf-8")
+        with path.open(encoding="utf-8") as handle:
+            cp.read_file(handle)
     except configparser.Error as exc:
         return _fail(_safe_error("unparsable INI", exc))
+    except (OSError, UnicodeDecodeError) as exc:
+        return _fail(_safe_error("unreadable INI", exc))
     profiles = []
     for section in cp.sections():
         # AWS config writes "[profile foo]" while credentials writes "[foo]",
@@ -278,11 +286,17 @@ def parse_sqlite_gcloud(path: Path, spec: PathSpec) -> ParseResult:
 
     Opened read-only via URI so a scan can never mutate or lock the database
     out from under a running gcloud.
+
+    The path is percent-encoded rather than interpolated: SQLite parses a URI,
+    so a ``CLOUDSDK_CONFIG`` holding ``?`` or ``#`` would be cut into a query
+    or a fragment, and a literal ``%`` would be decoded into some other file
+    entirely. ``/`` stays safe so the path keeps its separators.
     """
     profiles: dict[str, Profile] = {}
     note = ""
+    uri = "file:" + urllib.parse.quote(str(path), safe="/") + "?mode=ro"
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con = sqlite3.connect(uri, uri=True)
     except sqlite3.Error as exc:
         return _fail(f"unreadable SQLite: {exc}")
 

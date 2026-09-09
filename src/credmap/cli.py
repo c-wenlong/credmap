@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import __version__
+from . import __version__, registry
 from .doctor import diagnose
 from .liveness import check as run_liveness
+from .model import Store
 from .registry import find, load
 from .render import (
     findings_to_dict,
@@ -71,8 +72,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def registry_stores() -> tuple[Store, ...]:
+    """The registry, saying once on stderr if the overlay was refused.
+
+    Silently ignoring an unsafe ``registry.toml`` would leave a user editing a
+    file that has no effect, so the reason is printed — once per run, which is
+    why the argv rewrite in :func:`main` uses ``load`` directly.
+    """
+    stores = load()
+    if registry.OVERLAY_WARNING:
+        print(f"credmap: {registry.OVERLAY_WARNING}", file=sys.stderr)
+    return stores
+
+
 def cmd_scan(args) -> int:
-    results = scan(load())
+    results = scan(registry_stores())
     if args.check:
         run_liveness(results)
     if args.json:
@@ -85,16 +99,26 @@ def cmd_scan(args) -> int:
 
 
 def cmd_paths(args) -> int:
-    results = scan(load())
+    results = scan(registry_stores())
     if args.json:
-        sys.stdout.write(to_json([result_to_dict(r) for r in results]))
+        payload = [result_to_dict(r) for r in results]
+        if args.found:
+            # --found is a filter on paths, and it has to mean the same thing
+            # in both renderers: the table drops absent rows, so JSON drops
+            # absent path entries and any store left with nothing to show.
+            # "found" is left alone — whether a store is installed is judged
+            # on its marker, which may be one of the paths just filtered out.
+            for entry in payload:
+                entry["paths"] = [p for p in entry["paths"] if p["exists"]]
+            payload = [entry for entry in payload if entry["paths"]]
+        sys.stdout.write(to_json(payload))
         return 0
     sys.stdout.write(render_paths(results, styler(), only_found=args.found))
     return 0
 
 
 def cmd_where(args) -> int:
-    matches = find(load(), args.query)
+    matches = find(registry_stores(), args.query)
     if not matches:
         print(f"credmap: no store matches '{args.query}'", file=sys.stderr)
         print("try: credmap paths", file=sys.stderr)
@@ -116,7 +140,7 @@ def cmd_where(args) -> int:
 
 
 def cmd_show(args) -> int:
-    matches = find(load(), args.store)
+    matches = find(registry_stores(), args.store)
     if not matches:
         print(f"credmap: no store matches '{args.store}'", file=sys.stderr)
         return 2
@@ -131,7 +155,7 @@ def cmd_show(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    results = scan(load())
+    results = scan(registry_stores())
     if args.check:
         run_liveness(results)
     findings = diagnose(results)
@@ -151,13 +175,26 @@ HANDLERS = {
 }
 
 
-def main(argv: list[str] | None = None) -> int:
-    raw = list(sys.argv[1:] if argv is None else argv)
-    # "scan" is the default verb, so `credmap --all` means `credmap scan --all`.
+def _rewrite(raw: list[str]) -> list[str]:
+    """Supply the verb a bare invocation left out.
+
+    Two shapes have no verb. ``credmap --all`` is scan with a flag, and
+    ``credmap aws`` is a provider name — which used to become ``scan aws`` and
+    die on argparse, when the only thing it could sensibly mean is ``where
+    aws``. A first token that names nothing in the registry still falls
+    through to ``scan``, so an unknown word is still rejected as one.
+    """
     if not raw:
-        raw = ["scan"]
-    elif raw[0] not in HANDLERS and raw[0] not in ("-h", "--help", "--version"):
-        raw = ["scan", *raw]
+        return ["scan"]
+    if raw[0] in HANDLERS or raw[0] in ("-h", "--help", "--version"):
+        return raw
+    if not raw[0].startswith("-") and find(load(), raw[0]):
+        return ["where", *raw]
+    return ["scan", *raw]
+
+
+def main(argv: list[str] | None = None) -> int:
+    raw = _rewrite(list(sys.argv[1:] if argv is None else argv))
 
     args = build_parser().parse_args(raw)
     try:

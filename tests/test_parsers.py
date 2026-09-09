@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
+import urllib.parse
+from pathlib import Path
+
 import pytest
 
-from credmap.model import EXPIRED
+from credmap.model import EXPIRED, PathSpec
+from credmap.parsers import parse_ini, parse_sqlite_gcloud
 from credmap.registry import find, load
 from credmap.scan import scan, scan_store
 
@@ -174,3 +180,105 @@ def test_partial_read_keeps_what_it_parsed():
 def test_scan_covers_every_registered_store(fake_home):
     results = scan(load())
     assert len(results) == len(load())
+
+
+# --------------------------------------------------------------------------
+# unreadable files (issue 6) and hostile paths (issues 7, 25)
+# --------------------------------------------------------------------------
+
+INI_SPEC = PathSpec(path="~/.aws/credentials", fmt="ini", role="secrets")
+SQLITE_SPEC = PathSpec(path="{config}/gcloud/credentials.db", fmt="sqlite-gcloud")
+
+_UNREADABLE_SENTINEL = "FAKE-unreadable-ini-secret-0123456789"
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root reads a mode-000 file regardless of its mode",
+)
+def test_permission_denied_ini_is_an_error_not_an_empty_file(tmp_path):
+    """`ConfigParser.read` swallows OSError; an empty result would be a lie."""
+    path = tmp_path / "credentials"
+    path.write_text(
+        f"[default]\naws_secret_access_key = {_UNREADABLE_SENTINEL}\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o000)
+    try:
+        result = parse_ini(path, INI_SPEC)
+    finally:
+        path.chmod(0o600)  # so tmp_path cleanup can remove it
+
+    assert result.profiles == []
+    assert "unreadable INI" in result.error
+    assert "PermissionError" in result.error
+    assert _UNREADABLE_SENTINEL not in result.error
+
+
+def test_undecodable_ini_is_an_error_that_quotes_nothing(tmp_path):
+    path = tmp_path / "credentials"
+    path.write_bytes(b"[default]\naws_secret_access_key = \xff\xfe\n")
+    result = parse_ini(path, INI_SPEC)
+    assert result.profiles == []
+    assert "unreadable INI" in result.error
+    assert "UnicodeDecodeError" in result.error
+
+
+def test_readable_ini_still_parses(tmp_path):
+    path = tmp_path / "credentials"
+    path.write_text("[default]\nregion = eu-north-1\n", encoding="utf-8")
+    result = parse_ini(path, INI_SPEC)
+    assert not result.error
+    assert [p.name for p in result.profiles] == ["default"]
+    assert result.profiles[0].fields["region"] == "eu-north-1"
+
+
+def _gcloud_db(path: Path, account: str) -> Path:
+    """The two tables `parse_sqlite_gcloud` looks for, same schema as conftest."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE credentials (account_id TEXT PRIMARY KEY, value BLOB)")
+    con.execute("INSERT INTO credentials VALUES (?, ?)", (account, b"fake"))
+    con.execute(
+        "CREATE TABLE access_tokens (account_id TEXT PRIMARY KEY,"
+        " access_token TEXT, token_expiry TIMESTAMP)"
+    )
+    con.commit()
+    con.close()
+    return path
+
+
+def test_sqlite_path_with_query_and_fragment_still_opens(tmp_path):
+    """`?` and `#` in a CLOUDSDK_CONFIG path are path characters, not URI syntax.
+
+    This one did not fail closed. `file:.../cfg?v=1#frag/credentials.db?mode=ro`
+    parses as path `.../cfg` with the real `mode=ro` stranded in the fragment,
+    so SQLite fell back to read-write-create and *created* a database at the
+    truncation point — a write, from a tool that has no write path.
+    """
+    root = tmp_path / "cfg?v=1#frag"
+    db = _gcloud_db(root / "credentials.db", "someone@example.com")
+    result = parse_sqlite_gcloud(db, SQLITE_SPEC)
+    assert not result.error
+    assert [p.name for p in result.profiles] == ["someone@example.com"]
+    assert [p.name for p in tmp_path.iterdir()] == [root.name], "scan created a file"
+
+
+def test_sqlite_path_percent_escape_is_not_decoded(tmp_path):
+    """SQLite percent-decodes a URI, so `%41` must not become `A` and open a peer."""
+    real = _gcloud_db(tmp_path / "st%41ge" / "credentials.db", "real@example.com")
+    _gcloud_db(tmp_path / "stAge" / "credentials.db", "decoy@example.com")
+    result = parse_sqlite_gcloud(real, SQLITE_SPEC)
+    assert not result.error
+    assert [p.name for p in result.profiles] == ["real@example.com"]
+
+
+def test_sqlite_stays_read_only_on_an_escaped_path(tmp_path):
+    db = _gcloud_db(tmp_path / "st%41ge ? #" / "credentials.db", "someone@example.com")
+    uri = "file:" + urllib.parse.quote(str(db), safe="/") + "?mode=ro"
+    con = sqlite3.connect(uri, uri=True)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            con.execute("delete from credentials")
+    finally:
+        con.close()

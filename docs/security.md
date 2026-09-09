@@ -31,23 +31,33 @@ whole-program leak test fail if the fix is reverted:
 5. `passphrase`, `jwt`, `cookie`, `dsn`, `mnemonic`, `seed`, `sas` and anything containing `pass` are now caught by default-deny.
 6. Both `doctor` renderers are in the leak test.
 
+v0.1.2 closed the rest of the redaction findings: strong hints such as
+`session`, `secret` and `token` now beat the `_id`/`_url` suffix exemption,
+the fingerprint tail shows only from 16 characters up, and the leaf of a
+dotted name is judged before its parent so `Credentials.AccessKeyId` shows
+while `credentials.session_id` does not. It also bounded probe output,
+added an overall probe deadline, refused a group- or world-writable overlay,
+and percent-quoted the SQLite URI. The last of those had been a genuine
+write path: a `?` in `CLOUDSDK_CONFIG` stranded `mode=ro` in the fragment
+and SQLite created a stray database. A test now asserts no file appears.
+
 ## Still open
 
-Listed with detail in [known-issues.md](known-issues.md): the `_url`/`_uri`
-suffix exemption overrides an explicit hint match, so `secret_url` and
-`session_id` print; the fingerprint tail reveals four characters from nine
-characters up, which is a lot of a human-chosen password; and hints are
-judged on the full dotted path while the allow-list is judged on the leaf.
+Listed with detail in [known-issues.md](known-issues.md): an unparsable
+credentials file is a `doctor` warning rather than an exit-1 error, by
+decision; an unreadable file inside gcloud's `configurations/` directory is
+skipped silently; and the overlay permission check covers the file, not its
+parent directory.
 
 ## Things to know
 
 - **Symlinks are followed.** A `~/.aws/credentials` symlinked elsewhere is read, and the permission audit reports the target's real mode. This is by design; it is your home.
-- **The overlay has your full authority.** `~/.config/credmap/registry.toml` can point credmap at any readable file and can declare any command for `--check`. It is read without an ownership or permission check, so keep that directory writable only by you.
-- **The fingerprint reveals the last four characters** of any secret longer than eight characters, plus its length. That is calibrated for machine tokens. For a human-chosen password it reveals a meaningful fraction.
+- **The overlay has your full authority.** `~/.config/credmap/registry.toml` can point credmap at any readable file and can declare any command for `--check`. A group- or world-writable overlay file is ignored with a warning; the directory is not checked, so keep it writable only by you.
+- **The fingerprint reveals the last four characters** of any secret of 16 characters or more, plus its length. Shorter values show only their length.
+- **Provider CLI output is masked by shape.** Under `--check`, any run of 20 or more token-alphabet characters in a CLI's stdout or stderr is fingerprinted before it is shown, and only the first 64 KiB is read.
 - **Terminal transcripts persist.** Default output is designed to be safe to paste. `--reveal` output is not, and is never implied.
 
 ## Reporting
 
-This is a personal project. Open an issue on the repository, or if the repo
-is private, contact the author directly. Do not include real credentials in a
+This is a personal project. Open an issue on the repository. Do not include real credentials in a
 report; the fixtures in `tests/conftest.py` show how to build a synthetic one.

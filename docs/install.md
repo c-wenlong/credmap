@@ -104,9 +104,10 @@ uv tool uninstall credmap
 
 ## From PyPI
 
-Available only once the repo is public and a release has been published.
 The distribution name is `credmap-cli` because `credmap` on PyPI is held by
-an unrelated 2022 upload. The command is still `credmap`.
+an unrelated 2022 upload. The command is still `credmap`. The release
+workflow publishes on every tag once the Trusted Publisher is registered;
+see [releasing.md](releasing.md).
 
 ```bash
 uv tool install credmap-cli

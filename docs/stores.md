@@ -76,7 +76,7 @@ wins a conflict.
 
 | store | secret_fields | id_fields |
 |---|---|---|
-| `aws` | aws_secret_access_key, aws_session_token, aws_security_token | aws_access_key_id, sso_account_id, role_arn, sso_session, sso_role_name, sso_start_url, sso_region, sso_registration_scopes |
+| `aws` | aws_secret_access_key, aws_session_token, aws_security_token | aws_access_key_id, sso_account_id, role_arn, sso_session, sso_role_name, sso_start_url, sso_region, sso_registration_scopes, credential_process, web_identity_token_file, role_session_name |
 | `gcloud-adc` | client_secret, refresh_token, private_key | client_id, client_email, project_id, quota_project_id |
 | `doctl` | access-token | |
 | `kube` | token, password, client-key-data, client-certificate-data | |

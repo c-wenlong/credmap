@@ -6,13 +6,42 @@ filesystem alone did not make it obvious.
 
 from __future__ import annotations
 
+import shlex
 from collections import defaultdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .model import DEAD, EXPIRED, NO_CLI, Finding, StoreResult
 from .parsers import parse_timestamp
 from .resolve import display, expand
 from .scan import dir_size
+
+
+def _shell_path(path: Path) -> str:
+    """A path as a shell word, safe to paste into the fix line we print.
+
+    A bloat directory or a relocated store can hold a space, and the remedies
+    here are meant to be copied straight into a shell: an unquoted
+    ``rm -rf ~/my logs/*`` deletes the wrong thing. The leading ``~/`` stays
+    outside the quotes because tilde expansion only happens unquoted, and
+    ``~/'my logs'`` is both expanded and safe.
+    """
+    text = display(path)
+    if text == "~":
+        return text
+    if text.startswith("~/"):
+        return "~/" + shlex.quote(text[2:])
+    return shlex.quote(text)
+
+
+def _human_size(size: int) -> str:
+    """Bytes as MB or GB, whichever keeps the number readable.
+
+    Everything used to be printed as GB, so a 60 MB log directory reported
+    itself as "0.1 GB" — a number nobody acts on.
+    """
+    mb = size / 1024 / 1024
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
 
 
 def _ago(raw: str | None) -> str:
@@ -38,7 +67,14 @@ def _duplicates(results: list[StoreResult]) -> list[Finding]:
                 continue
             for prof in fp.profiles:
                 for value in prof.secret_values(result.store):
-                    index[value].append((result.store.id, prof.name))
+                    # One profile is one credential however many of its own
+                    # fields hold the string, and the same profile can appear
+                    # in two files of one store (AWS 'default' is in both
+                    # credentials and config). Count owners, not sightings,
+                    # or a lone profile reports itself as "shared by 2".
+                    owner = (result.store.id, prof.name)
+                    if owner not in index[value]:
+                        index[value].append(owner)
 
     findings = []
     for uses in index.values():
@@ -77,7 +113,7 @@ def _permissions(results: list[StoreResult]) -> list[Finding]:
                             f"{display(fp.path)} is mode {fp.mode:04o} — "
                             "readable by group or others"
                         ),
-                        fix=f"{target} {display(fp.path)}",
+                        fix=f"{target} {_shell_path(fp.path)}",
                     )
                 )
     return findings
@@ -173,10 +209,10 @@ def _bloat(results: list[StoreResult]) -> list[Finding]:
                         level="info",
                         store=result.store.id,
                         message=(
-                            f"{display(path)} is {size / 1024 / 1024 / 1024:.1f} GB "
+                            f"{display(path)} is {_human_size(size)} "
                             "of logs, not credentials"
                         ),
-                        fix=f"rm -rf {display(path)}/*",
+                        fix=f"rm -rf {_shell_path(path)}/*",
                     )
                 )
     return findings
@@ -186,6 +222,11 @@ def _empty(results: list[StoreResult]) -> list[Finding]:
     findings = []
     for result in results:
         if not result.found or result.profiles or result.notes:
+            continue
+        # A file that failed to parse already explains itself, and _notes has
+        # said so. Adding "no profiles were parsed" on top of the parse error
+        # reports one broken file as two problems.
+        if any(fp.error for fp in result.paths):
             continue
         findings.append(
             Finding(

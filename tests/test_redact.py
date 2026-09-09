@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 
 from credmap.doctor import diagnose
-from credmap.model import Store
 from credmap.redact import is_secret, mask, scrub, scrub_text
 from credmap.registry import load
 from credmap.render import (
@@ -80,6 +79,24 @@ def test_short_secrets_expose_no_tail():
     assert mask("abc") == "<redacted, 3 chars>"
 
 
+@pytest.mark.parametrize("length", range(1, 16))
+def test_no_tail_below_sixteen_characters(length):
+    """Issue 5d: four characters of a 9-character human password is half of it.
+
+    The tail is calibrated for machine tokens, which are all far longer, so the
+    floor sits above every plausible hand-chosen password length.
+    """
+    value = "p" * length
+    out = mask(value)
+    assert out == f"<redacted, {length} chars>"
+    assert "ends" not in out
+
+
+def test_tail_returns_at_sixteen_characters():
+    assert mask("a" * 15) == "<redacted, 15 chars>"
+    assert mask("0123456789abcdef").endswith("ends ...cdef>")
+
+
 def test_unknown_fields_are_masked_by_default():
     """Default-deny: a store nobody has curated is still safe."""
     assert is_secret("some_new_api_token")
@@ -132,3 +149,99 @@ def test_scrub_text_masks_token_shaped_runs():
 
 def test_scrub_text_caps_length():
     assert len(scrub_text("word " * 200, limit=40)) == 40
+
+
+# --- issue 5: an explicit hint must beat the suffix allow-list ---------------
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "key_id",
+        "aws_access_key_id",
+        "client_id",
+        "sso_account_id",
+        "project_id",
+        "public_key",
+        "private_key_present",
+        "keyring",
+        "key_type",
+        "git_protocol",
+        "callback_url",
+        "webhook_url",
+        "sso_start_url",
+        "token_expiry",
+    ],
+)
+def test_identifier_shapes_stay_visible(field):
+    """Masking an identifier makes the output useless without making it safer."""
+    assert not is_secret(field), field
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "session_id",
+        "secret_url",
+        "token_url",
+        "password_uri",
+        "bearer_id",
+        "jwt_url",
+    ],
+)
+def test_hints_beat_the_suffix_allow_list(field):
+    """Issue 5: a session ID is a bearer, and a callback URL can carry a token."""
+    assert is_secret(field), field
+
+
+# --- issue 5e: hints and the allow-list judge the same scope -----------------
+
+
+@pytest.mark.parametrize(
+    "field,secret",
+    [
+        ("credentials.account", False),
+        ("credentials.user", False),
+        ("credentials.callback_url", False),
+        ("credentials.session_id", True),
+        ("credentials.api_token", True),
+        ("Credentials.AccessKeyId", False),
+        ("Credentials.Expiration", False),
+        ("Credentials.SecretAccessKey", True),
+        ("Credentials.SessionToken", True),
+    ],
+)
+def test_parent_hint_does_not_override_a_leaf_that_decided(field, secret):
+    """Issue 5e: the leaf decides; the parent is consulted only if it cannot."""
+    assert is_secret(field) is secret, field
+
+
+def test_parent_hint_still_masks_an_undecided_leaf():
+    """Default-deny survives: anything under an ``auth`` key is still masked."""
+    assert is_secret("auth.foo")
+    assert is_secret("credentials.blob")
+    assert not is_secret("context.cluster")
+
+
+def test_camel_case_leaves_are_read_as_snake_case():
+    """The AWS CLI cache writes camelCase, so the same rules must reach it."""
+    out = scrub(
+        {
+            "Credentials": {
+                "AccessKeyId": "AKIAFAKEFAKEFAKEFAKE",
+                "SecretAccessKey": "s" * 40,
+            }
+        },
+        None,
+    )
+    assert out["Credentials"]["AccessKeyId"] == "AKIAFAKEFAKEFAKEFAKE"
+    assert out["Credentials"]["SecretAccessKey"].startswith("<redacted")
+
+
+def test_fixture_sentinels_do_not_match_provider_token_prefixes():
+    """Issue 29: gitleaks and push protection must not flag the fixtures."""
+    from .conftest import GH_TOKEN, HF_TOKEN
+
+    assert not GH_TOKEN.startswith(("gho_", "ghp_", "ghu_", "ghs_"))
+    assert not HF_TOKEN.startswith("hf_")
+    assert len(GH_TOKEN) == 40 and len(HF_TOKEN) == 37

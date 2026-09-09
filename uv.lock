@@ -12,8 +12,8 @@ wheels = [
 ]
 
 [[package]]
-name = "credmap"
-version = "0.1.1"
+name = "credmap-cli"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },

@@ -26,11 +26,21 @@ def cache_home() -> Path:
     return _xdg("XDG_CACHE_HOME", ".cache")
 
 
+def _expand_path(raw: str) -> Path:
+    """``$VAR`` then ``~``, in that order, for one path string.
+
+    Both, always. An env var that holds ``$HOME/b.yml`` is as common as one
+    holding ``~/b.yml``, and expanding only the tilde left the dollar form as
+    a literal path segment that never matched a file.
+    """
+    return Path(os.path.expandvars(raw)).expanduser()
+
+
 def expand(template: str) -> Path:
     """Expand ``{config}``, ``{cache}``, ``$VARS`` and ``~`` in a template."""
     s = template.replace("{config}", str(config_home()))
     s = s.replace("{cache}", str(cache_home()))
-    return Path(os.path.expandvars(s)).expanduser()
+    return _expand_path(s)
 
 
 def resolve(spec: PathSpec) -> list[Path]:
@@ -43,22 +53,35 @@ def resolve(spec: PathSpec) -> list[Path]:
         raw = os.environ.get(spec.env)
         if raw:
             if spec.multi:
-                return [Path(p).expanduser() for p in raw.split(os.pathsep) if p]
-            return [Path(os.path.expandvars(raw)).expanduser()]
+                # Order is the search order the provider uses, so it is kept.
+                # Empty segments ("a::b", a trailing colon) are dropped.
+                return [_expand_path(p) for p in raw.split(os.pathsep) if p]
+            return [_expand_path(raw)]
 
     if spec.root_env and spec.rel:
         root = os.environ.get(spec.root_env)
         if root:
-            return [Path(os.path.expandvars(root)).expanduser() / spec.rel]
+            return [_expand_path(root) / spec.rel]
 
     return [expand(spec.path)]
 
 
 def display(path: Path) -> str:
-    """Render a path with ``~`` collapsed, for output."""
+    """Render a path with ``~`` collapsed, for output.
+
+    The comparison is on whole path components. A bare ``startswith`` made
+    ``/Users/kaichen/x`` render as ``~chen/x`` for a user whose home is
+    ``/Users/kai`` — wrong everywhere it is printed, and doctor prints it
+    inside a ``chmod`` line meant to be pasted.
+    """
     home = str(Path.home())
     s = str(path)
-    return "~" + s[len(home) :] if s.startswith(home) else s
+    if s == home:
+        return "~"
+    prefix = home if home.endswith(os.sep) else home + os.sep
+    if s.startswith(prefix):
+        return "~" + os.sep + s[len(prefix) :]
+    return s
 
 
 def overridden_by(spec: PathSpec) -> str | None:

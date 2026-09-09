@@ -7,8 +7,9 @@ import textwrap
 
 import pytest
 
+from credmap import registry
 from credmap.doctor import diagnose
-from credmap.model import PathSpec
+from credmap.redact import is_secret
 from credmap.registry import find, load
 from credmap.resolve import config_home, resolve
 from credmap.scan import scan, scan_store
@@ -100,6 +101,12 @@ def test_unknown_query_returns_nothing():
     assert find(load(), "definitely-not-a-provider") == []
 
 
+@pytest.mark.parametrize("query", ["", "   ", "\t\n"])
+def test_an_empty_query_matches_nothing(query):
+    """It is a substring of every id, so it used to match the whole registry."""
+    assert find(load(), query) == []
+
+
 def test_kind_lookup_returns_a_group():
     ids = {s.id for s in find(load(), "cloud")}
     assert {"aws", "gcloud", "azure"} <= ids
@@ -128,6 +135,7 @@ def test_toml_overlay_adds_a_store(fake_home):
         """,
         encoding="utf-8",
     )
+    overlay.chmod(0o600)
     stores = load()
     acme = next((s for s in stores if s.id == "acme"), None)
     assert acme is not None
@@ -139,13 +147,24 @@ def test_broken_overlay_is_ignored_not_fatal(fake_home):
     overlay = config_home() / "credmap/registry.toml"
     overlay.parent.mkdir(parents=True, exist_ok=True)
     overlay.write_text("this is not [ valid toml", encoding="utf-8")
+    overlay.chmod(0o600)
     assert len(load()) > 0
 
 
-def write_overlay(text: str) -> None:
+def write_overlay(text: str, mode: int = 0o600) -> None:
     overlay = config_home() / "credmap/registry.toml"
     overlay.parent.mkdir(parents=True, exist_ok=True)
     overlay.write_text(textwrap.dedent(text), encoding="utf-8")
+    # Explicit, because load() refuses an overlay anyone else can write and
+    # the mode write_text leaves behind depends on the developer's umask.
+    overlay.chmod(mode)
+
+
+def write_overlay_bytes(data: bytes, mode: int = 0o600) -> None:
+    overlay = config_home() / "credmap/registry.toml"
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    overlay.write_bytes(data)
+    overlay.chmod(mode)
 
 
 def store(sid: str):
@@ -222,6 +241,96 @@ def test_overlay_can_drop_a_probe_explicitly(fake_home):
 def test_new_store_still_requires_paths(fake_home):
     write_overlay('[ghost]\nname = "Nowhere"\n')
     assert not any(s.id == "ghost" for s in load())
+
+
+def test_an_empty_paths_list_drops_the_inherited_paths(fake_home):
+    """"Assign an empty value to remove an inherited one" has to hold here too.
+
+    It used to fall back to the built-in list, so the one key you would reach
+    for to stop credmap looking at a store was the one key with no effect. A
+    store left with nowhere to look is dropped: keeping it would put a store
+    in the registry that can never be found.
+    """
+    write_overlay("[aws]\npaths = []\n")
+    assert not any(s.id == "aws" for s in load())
+
+
+def test_omitting_paths_still_inherits_them(fake_home):
+    """Absent is not empty: mentioning nothing must change nothing."""
+    builtin = store("aws")
+    write_overlay('[aws]\nname = "Work AWS"\n')
+    assert store("aws").paths == builtin.paths
+
+
+def test_replacing_paths_replaces_them_wholesale(fake_home):
+    write_overlay(
+        """
+        [aws]
+        [[aws.paths]]
+        path = "~/.aws-elsewhere/credentials"
+        fmt = "ini"
+        role = "secrets"
+        marker = true
+        """
+    )
+    paths = store("aws").paths
+    assert len(paths) == 1 and paths[0].path == "~/.aws-elsewhere/credentials"
+
+
+def test_a_bare_string_is_one_value_not_one_per_character(fake_home):
+    """`aliases = "acme"` used to become the four aliases a, c, m and e."""
+    write_overlay(
+        """
+        [acme]
+        aliases = "acme-corp"
+        secret_fields = "api_token"
+        id_fields = "account_id"
+
+          [[acme.paths]]
+          path = "~/.acme/creds.json"
+          fmt = "json"
+          role = "secrets"
+          marker = true
+        """
+    )
+    acme = store("acme")
+    assert acme.aliases == ("acme-corp",)
+    assert acme.secret_fields == frozenset({"api_token"})
+    assert acme.id_fields == frozenset({"account_id"})
+
+
+def test_a_non_utf8_overlay_is_ignored_not_fatal(fake_home):
+    """One stray byte in the file used to crash every command."""
+    write_overlay_bytes(b'[aws]\nname = "Caf\xe9 AWS"\n')
+    stores = load()
+    assert any(s.id == "aws" for s in stores)
+    assert store("aws").name == "AWS CLI"
+
+
+def test_a_group_writable_overlay_is_refused(fake_home):
+    """Another local user could name any file to read and any argv to run."""
+    write_overlay('[aws]\nname = "Work AWS"\n', mode=0o664)
+    assert store("aws").name == "AWS CLI"
+    assert "writable by group" in registry.OVERLAY_WARNING
+
+
+def test_an_owner_only_overlay_leaves_no_warning(fake_home):
+    write_overlay('[aws]\nname = "Work AWS"\n', mode=0o600)
+    assert store("aws").name == "Work AWS"
+    assert registry.OVERLAY_WARNING == ""
+
+
+# --------------------------------------------------------------------------
+# curated fields
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field", ["credential_process", "web_identity_token_file", "role_session_name"]
+)
+def test_aws_identifiers_stay_visible(field):
+    """A command, a file path and a label. None of them can hold key material."""
+    assert not is_secret(field, next(s for s in load() if s.id == "aws"))
 
 
 # --------------------------------------------------------------------------

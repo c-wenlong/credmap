@@ -16,8 +16,8 @@ credmap never runs that command itself.
 | SSO never completed | warn | An AWS SSO cache holds client registrations but no access token | the store's login command |
 | Unparsable file | warn | A path exists but its parser reported an error | the store's login command |
 | Other notes | info | Keychain indirection, current kube context, stale gcloud token cache, opaque stores | |
-| Loose permissions | warn | A `secrets`, `keys` or `token-cache` path is readable by group or others | `chmod 600 <path>`, or `chmod 700` for a directory |
-| Bloat | info | A declared bloat directory exceeds its threshold (gcloud logs over 500 MB) | `rm -rf <path>/*` |
+| Loose permissions | warn | A `secrets`, `keys` or `token-cache` path is readable by group or others | `chmod 600 <path>`, or `chmod 700` for a directory, with the path shell-quoted |
+| Bloat | info | A declared bloat directory exceeds its threshold (gcloud logs over 500 MB); size shown in MB below 1 GB | `rm -rf <path>/*`, with the path shell-quoted and a leading `~/` left for the shell to expand |
 | Empty store | info | The store's marker exists but no profiles were parsed and no note explains why | |
 
 Token caches are excluded from the shared-secret check because they

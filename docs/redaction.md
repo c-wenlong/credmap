@@ -9,11 +9,13 @@ that no sentinel secret ever appears in output.
 
 | Secret length | Rendered as |
 |---|---|
-| 8 characters or fewer | `<redacted, N chars>` |
-| More than 8 | `<redacted, N chars, ends ...XXXX>` |
+| 15 characters or fewer | `<redacted, N chars>` |
+| 16 or more | `<redacted, N chars, ends ...XXXX>` |
 
 The four-character tail is enough to match a key against a provider console
-without putting the key in a terminal transcript. Short secrets show no tail.
+without putting the key in a terminal transcript. The floor is 16 because
+anything shorter is likely a human-chosen password, where four characters
+is a large fraction.
 
 Only non-empty strings are masked. Booleans, integers, `null` and empty
 strings pass through, because they carry no secret and hiding them makes the
@@ -30,17 +32,19 @@ the visible `aws_access_key_id`.
 `is_secret(field, store)` runs these checks in order and stops at the first
 that decides:
 
-1. The name is in the store's `id_fields`: **visible**. This is checked first, so a curated identifier beats every other rule.
-2. The name is in the store's `secret_fields`: **masked**.
-3. The last segment of a dotted name is in the never-secret set, or ends with `_id`, `_ids`, `_present`, `_expiry`, `_domain`, `_url` or `_uri`: **visible**. The never-secret set is `type`, `name`, `account`, `login`, `user`, `username`, `email`, `keyring`, `key_type`, `public_key`, `git_protocol`, `private_key_present`, `project`, `region`, `universe_domain`.
-4. The full name contains any of `secret`, `token`, `password`, `passwd`, `pass`, `phrase`, `private`, `credential`, `auth`, `key`, `cert`, `session`, `bearer`, `signature`, `jwt`, `cookie`, `dsn`, `mnemonic`, `seed`, `sas`: **masked**.
-5. Otherwise **visible**.
+1. The full name is in the store's `id_fields`: **visible**. This is checked first, so a curated identifier beats every other rule.
+2. The full name is in the store's `secret_fields`: **masked**.
+3. The leaf of the dotted name, with camelCase split so `Credentials.AccessKeyId` reads as `access_key_id`, is in the never-secret set or ends with `_present`, `_expiry` or `_domain`: **visible**. The never-secret set is `type`, `name`, `account`, `login`, `user`, `username`, `email`, `keyring`, `key_type`, `public_key`, `git_protocol`, `private_key_present`, `project`, `region`, `universe_domain`, `expiration`, `expires`, `expires_at`, `expiry`.
+4. The leaf holds a strong hint: `secret`, `token`, `pass` (covers `password`, `passwd`, `passphrase`, `passcode`), `private`, `session`, `bearer`, `jwt`, `cookie`, `mnemonic`, `seed`: **masked**. A strong hint beats the suffix rule below, so `session_id`, `secret_url` and `token_url` are masked.
+5. The leaf ends with `_id`, `_ids`, `_url` or `_uri`: **visible**. So `key_id`, `client_id`, `callback_url` and `sso_start_url` show.
+6. The leaf holds a weak hint: `key`, `cert`, `auth`, `credential`, `signature`, `phrase`, `dsn`, `sas`: **masked**.
+7. The leaf decided nothing, so the parent path is checked for any hint: **masked** if one is found, otherwise **visible**.
 
-Step 4 makes redaction default-deny. A store you add in your own
+Steps 4 to 7 make redaction default-deny. A store you add in your own
 `registry.toml` is safe before anyone curates its field list, because any
 field whose name looks secret is masked whether or not the registry declared
-it. Nested values are judged by their full dotted path, so everything under an
-`auth` key is masked.
+it. Everything under an `auth` key is masked unless its own name says it is
+an identifier or a timestamp.
 
 When a field is wrongly masked, the fix is to add it to that store's
 `id_fields`. The hint list is never loosened to make one store look nicer.
@@ -67,6 +71,5 @@ line is capped at 160 characters. A long filesystem path in a CLI's error
 gets masked as collateral. Parser error messages are built without quoting
 the file at all; see [formats.md](formats.md).
 
-What remains open is listed in [known-issues.md](known-issues.md): the
-`_url`/`_uri` suffix exemption beating a hint match, the four-character tail
-on short human passwords, and the leaf-versus-path scope mismatch.
+The rules above were tightened on 2026-09-09; what remains open is listed in
+[known-issues.md](known-issues.md).
