@@ -147,5 +147,6 @@ uv run pytest -q   # 65 tests, ~0.3s
 Tests generate a synthetic home directory rather than committing fixture files —
 nothing here should look like a credential to a human or a secret scanner.
 
-See [AGENTS.md](AGENTS.md) for the architecture, the invariants that are easy to
-break, and how to add a provider.
+See [docs/](docs/README.md) for the full reference: every command and flag,
+the built-in stores, the JSON schema, installing through Nix, and the open
+review findings. [AGENTS.md](AGENTS.md) is the short version for coding agents.

@@ -17,3 +17,6 @@ registry.toml
 *.pem
 *.key
 .env
+
+# nix build output symlink
+result

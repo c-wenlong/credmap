@@ -15,6 +15,7 @@ import json
 import subprocess
 
 from .model import DEAD, LIVE, NO_CLI, Profile, Store, StoreResult
+from .redact import scrub_text
 
 
 # Section names that are configuration blocks, not credential identities.
@@ -42,8 +43,16 @@ def probeable(result: StoreResult) -> list[Profile]:
 
 
 def _short(text: str, limit: int = 160) -> str:
+    """Last line of a probe's output, capped and stripped of token-shaped runs.
+
+    Everything this returns ends up in ``Profile.detail``, which ``doctor``
+    and ``--json`` print verbatim and which redaction cannot reach: there is
+    no field name to judge it by. A provider CLI is free to echo the
+    credential into its own failure text, so mask by shape here, at the one
+    point where external output enters the program.
+    """
     line = text.strip().splitlines()[-1] if text.strip() else ""
-    return line[:limit]
+    return scrub_text(line, limit)
 
 
 def _run(argv: list[str], timeout: int) -> tuple[str | None, str | None]:
@@ -86,7 +95,9 @@ def _probe_profile(store: Store, prof: Profile) -> None:
         except json.JSONDecodeError:
             doc = None
         if isinstance(doc, dict) and probe.extract in doc:
-            prof.detail = f"{probe.extract} {doc[probe.extract]}"
+            # `extract` is an overlay-controlled key into arbitrary stdout.
+            # Same treatment as stderr for the same reason.
+            prof.detail = f"{probe.extract} {scrub_text(str(doc[probe.extract]))}"
 
 
 def _probe_store(result: StoreResult) -> None:

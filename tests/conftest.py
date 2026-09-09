@@ -22,7 +22,32 @@ NETRC_PASSWORD = "FAKE-netrc-password-0123456789"
 HF_TOKEN = "hf_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE00"
 ADC_REFRESH = "1//FAKE-refresh-token-abcdefghijklmnop"
 
-ALL_SECRETS = (AWS_SECRET, GH_TOKEN, NETRC_PASSWORD, HF_TOKEN, ADC_REFRESH)
+# Sentinels that live in a *parseable* field, so `show --reveal` can print them.
+AWS_CONTINUED = "FAKE-folded-onto-the-previous-key-01234"
+PULUMI_TOKEN = "FAKE-pulumi-whole-file-scalar-0123456789"
+FLY_TOKEN = "FAKE-fly-whole-file-scalar-0123456789"
+
+# Sentinels that only ever exist inside a file that fails to parse. Nothing
+# can reveal these: the parser produced no field to hold them, and the error
+# message that mentions the file must not quote it. They belong to the leak
+# test only.
+PYPI_BROKEN = "FAKE-pypi-secret-on-the-broken-line-0123"
+DOCTL_BROKEN = "FAKE-doctl-secret-broken-line-0123"
+AUTHINFO_BROKEN = "FAKE-authinfo-secret-broken-line-0123"
+
+REVEALABLE_SECRETS = (
+    AWS_SECRET,
+    GH_TOKEN,
+    NETRC_PASSWORD,
+    HF_TOKEN,
+    ADC_REFRESH,
+    AWS_CONTINUED,
+    PULUMI_TOKEN,
+    FLY_TOKEN,
+)
+UNPARSED_SECRETS = (PYPI_BROKEN, DOCTL_BROKEN, AUTHINFO_BROKEN)
+
+ALL_SECRETS = REVEALABLE_SECRETS + UNPARSED_SECRETS
 
 AWS_KEY_ID = "AKIAFAKEFAKEFAKEFAKE"  # an identifier — must stay visible
 
@@ -74,6 +99,10 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         [duplicate-of-default]
         aws_access_key_id = {AWS_KEY_ID}
         aws_secret_access_key = {AWS_SECRET}
+
+        [indented-continuation]
+        aws_access_key_id = {AWS_KEY_ID}
+          aws_secret_access_key = {AWS_CONTINUED}
         """,
         mode=0o644,  # deliberately loose, for the permission check
     )
@@ -189,6 +218,17 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         """,
     )
 
+    # --- authinfo: malformed netrc. NetrcParseError repr's the token it could
+    # not place, which is the password when the line above it is broken.
+    _write(
+        home / ".authinfo",
+        f"""
+        machine api.example.com
+          login fakeuser
+          {AUTHINFO_BROKEN}
+        """,
+    )
+
     # --- ssh key directory ---
     _write(home / ".ssh/id_ed25519.pub", "ssh-ed25519 AAAAFAKEKEY fake@example.com\n", 0o644)
     _write(home / ".ssh/id_ed25519", "FAKE PRIVATE KEY\n")
@@ -196,5 +236,30 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     # --- huggingface: a bare token file ---
     _write(cache / "huggingface/token", HF_TOKEN + "\n")
+
+    # --- pulumi: the whole file is one JSON scalar, with no key to judge ---
+    _write(home / ".pulumi/credentials.json", json.dumps(PULUMI_TOKEN))
+
+    # --- fly: the whole file is one YAML scalar ---
+    _write(home / ".fly/config.yml", FLY_TOKEN + "\n")
+
+    # --- pypi: malformed INI, secret on the line configparser complains about.
+    # No section header, so MissingSectionHeaderError quotes the whole line.
+    _write(
+        home / ".pypirc",
+        f"""
+        password = {PYPI_BROKEN}
+        [pypi]
+        username = fakeuser
+        """,
+    )
+
+    # --- doctl: malformed YAML, secret on the line the mark points at.
+    # A literal tab is a classic hand-edit failure, and PyYAML's mark quotes
+    # the whole offending line back at you, sentinel included.
+    _write(
+        config / "doctl/config.yaml",
+        f"access-token:\t{DOCTL_BROKEN}\ncontext: default\n",
+    )
 
     return home

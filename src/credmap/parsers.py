@@ -51,6 +51,59 @@ def _fail(error: str, profiles: list[Profile] | None = None) -> ParseResult:
 
 
 # --------------------------------------------------------------------------
+# safe failure descriptions
+# --------------------------------------------------------------------------
+#
+# An error string is printed by `scan`, `show` and `doctor` and never passes
+# through `redact.scrub` — there is no field name to judge it by. So it must
+# not be built from a library exception's text: every parser we use quotes the
+# source it choked on. configparser's MissingSectionHeaderError embeds the
+# whole offending line, PyYAML's marks carry a snippet plus a caret, and
+# netrc's NetrcParseError repr's the token it could not place, which is the
+# password when the file is broken one line above it. Report the format, the
+# exception class and the line number instead — enough to open the file at the
+# right place, with none of its contents.
+
+
+def _fault_lines(exc: BaseException) -> list[int]:
+    """Line numbers an exception reports *structurally*.
+
+    Taken from attributes only, never parsed back out of ``str(exc)``, since
+    that string is exactly what we are refusing to trust.
+    """
+    lines: list[int] = []
+
+    lineno = getattr(exc, "lineno", None)
+    if isinstance(lineno, int):
+        lines.append(lineno)
+
+    # configparser.ParsingError accumulates (lineno, line) pairs.
+    for entry in getattr(exc, "errors", None) or ():
+        if isinstance(entry, tuple) and entry and isinstance(entry[0], int):
+            lines.append(entry[0])
+
+    # PyYAML marks are 0-based and there are two: where the construct started
+    # and where it went wrong.
+    for attr in ("context_mark", "problem_mark"):
+        mark = getattr(exc, attr, None)
+        if mark is not None and isinstance(getattr(mark, "line", None), int):
+            lines.append(mark.line + 1)
+
+    return sorted(set(lines))
+
+
+def _safe_error(what: str, exc: BaseException) -> str:
+    """Describe a failure without quoting a single byte of the file."""
+    lines = _fault_lines(exc)
+    where = ""
+    if lines:
+        shown = ", ".join(str(n) for n in lines[:3])
+        more = ", …" if len(lines) > 3 else ""
+        where = f", line{'s' if len(lines) > 1 else ''} {shown}{more}"
+    return f"{what}{where} ({type(exc).__name__})"
+
+
+# --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
 
@@ -80,7 +133,11 @@ def expiry_status(raw: Any) -> str:
 def _flatten(value: Any) -> dict[str, Any]:
     """One level of flattening, so nested config renders as ``a.b``."""
     if not isinstance(value, dict):
-        return {"value": value}
+        # A whole-file scalar — ~/.pulumi/credentials.json holding a bare
+        # "pul-..." string, ~/.fly/config.yml holding a bare token. There is
+        # no key to judge it by, and a file that *is* one value is a secret by
+        # construction, so name it something the default-deny hints catch.
+        return {"token": value}
     out: dict[str, Any] = {}
     for key, val in value.items():
         if isinstance(val, dict):
@@ -142,7 +199,7 @@ def parse_ini(path: Path, spec: PathSpec) -> ParseResult:
     try:
         cp.read(path, encoding="utf-8")
     except configparser.Error as exc:
-        return _fail(f"unparsable INI: {exc}")
+        return _fail(_safe_error("unparsable INI", exc))
     profiles = []
     for section in cp.sections():
         # AWS config writes "[profile foo]" while credentials writes "[foo]",
@@ -208,7 +265,7 @@ def parse_yaml(path: Path, spec: PathSpec) -> ParseResult:
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
-        return _fail(f"unparsable YAML: {exc}")
+        return _fail(_safe_error("unparsable YAML", exc))
 
     note = ""
     if isinstance(doc, dict) and doc.get("current-context"):
@@ -276,7 +333,7 @@ def parse_netrc(path: Path, spec: PathSpec) -> ParseResult:
     try:
         parsed = netrc.netrc(str(path))
     except (OSError, netrc.NetrcParseError) as exc:
-        return _fail(f"unparsable netrc: {exc}")
+        return _fail(_safe_error("unparsable netrc", exc))
     profiles = []
     for machine, entry in parsed.hosts.items():
         login, account, password = entry
@@ -395,4 +452,4 @@ def parse(path: Path, spec: PathSpec) -> ParseResult:
     try:
         return parser(path, spec)
     except Exception as exc:  # a bad file must not abort the whole scan
-        return _fail(f"{type(exc).__name__}: {exc}")
+        return _fail(_safe_error(f"{spec.fmt} parser failed", exc))

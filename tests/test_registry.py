@@ -35,7 +35,9 @@ def test_marker_present_means_found(fake_home):
 
 
 def test_absent_store_is_not_found(fake_home):
-    assert not result_for("pulumi").found
+    # vault, not pulumi: the fixture home now carries a ~/.pulumi holding a
+    # bare-scalar credential, which the whole-file-scalar leak test needs.
+    assert not result_for("vault").found
 
 
 # --------------------------------------------------------------------------
