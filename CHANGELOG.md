@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org). Findings referenced
 by number are the review ledger in [docs/known-issues.md](docs/known-issues.md).
 
+## 0.1.4
+
+Tests only; the package itself is unchanged from 0.1.3.
+
+- `write_overlay` in the CLI tests set the overlay file's mode but left its directory to the umask. On a machine with umask 002 that directory came out group-writable, the loader correctly refused the overlay, and the test failed. The suite now passes under umask 002, 022 and 077. Worth a release because the sdist ships `tests/`, so the defect was in the published artifact.
+
 ## 0.1.3
 
 The rest of the 2026-09-09 review, plus the packaging to ship it.

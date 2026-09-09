@@ -22,11 +22,19 @@ def run_err(capsys, *argv) -> tuple[int, str, str]:
     return code, captured.out, captured.err
 
 
-def write_overlay(home, text: str, mode: int = 0o600) -> None:
+def write_overlay(home, text: str, mode: int = 0o600, dir_mode: int = 0o700) -> None:
+    """An overlay at the mode we mean, not the mode the umask happened to give.
+
+    Both the file and its directory are set explicitly: the loader refuses an
+    overlay whose *directory* is group-writable, and a developer running with
+    umask 002 gets 0775 out of ``mkdir``. Leaving that to chance made this
+    helper pass on CI and fail on such a machine.
+    """
     overlay = home / ".config/credmap/registry.toml"
     overlay.parent.mkdir(parents=True, exist_ok=True)
     overlay.write_text(text, encoding="utf-8")
     overlay.chmod(mode)
+    overlay.parent.chmod(dir_mode)
 
 
 def test_bare_invocation_defaults_to_scan(fake_home, capsys):
