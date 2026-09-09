@@ -2,7 +2,7 @@
 # The distribution is credmap-cli because "credmap" on PyPI is held by an
 # unrelated 2022 upload. The import package and the command are both credmap.
 name = "credmap-cli"
-version = "0.1.2"
+version = "0.1.3"
 description = "Read-only discovery for credential stores scattered across your machine"
 readme = "README.md"
 requires-python = ">=3.11"
