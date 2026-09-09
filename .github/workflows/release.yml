@@ -46,12 +46,17 @@ jobs:
           gh release create "$GITHUB_REF_NAME"
           --repo "$GITHUB_REPOSITORY" --generate-notes dist/*
 
-  # Needs a pending Trusted Publisher registered on PyPI for credmap-cli
-  # (owner c-wenlong, repo credmap, workflow release.yml, environment pypi)
-  # and a `pypi` environment in the GitHub repo settings. Until both exist
-  # this job fails and the GitHub release above still succeeds.
+  # Skipped until PyPI publishing is switched on, so a release is not red for
+  # a step nobody has configured. To turn it on, once:
+  #   1. register a pending Trusted Publisher at pypi.org for project
+  #      credmap-cli, owner c-wenlong, repo credmap, workflow release.yml,
+  #      environment pypi
+  #   2. create the `pypi` environment in the GitHub repo settings
+  #   3. gh variable set PUBLISH_TO_PYPI --body true
+  # Steps 1 and 2 cannot be done from a workflow.
   publish:
     needs: build
+    if: vars.PUBLISH_TO_PYPI == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi

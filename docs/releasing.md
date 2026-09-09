@@ -22,7 +22,17 @@ the repo goes public, and do not run a Homebrew tap.** The reasoning is in
 2. **Decide visibility.** Public unlocks PyPI and removes the access-token bootstrap. Private is fine and flake-only.
 3. **Fix the secret leaks in [known-issues.md](known-issues.md#secret-leaks).** A release that prints a credential on a malformed file should not be the first one people install.
 4. **`flake.nix` is in the repo** (reproduced below). After changing it, run `nix build` and commit the regenerated `flake.lock`.
-5. **PyPI is wired but not registered.** `pyproject.toml` already carries the `credmap-cli` name and metadata, and `.github/workflows/release.yml` publishes on tag. Two manual steps remain and neither can be done from a workflow: register a pending Trusted Publisher on PyPI (project `credmap-cli`, owner `c-wenlong`, repo `credmap`, workflow `release.yml`, environment `pypi`) and create the `pypi` environment in the GitHub repo settings. Until then the `publish` job fails and the GitHub release still succeeds.
+5. **PyPI is wired but switched off.** `pyproject.toml` carries the `credmap-cli` name and metadata, and `release.yml` has the publish job, but the job is skipped unless the repository variable `PUBLISH_TO_PYPI` is `true`. Turning it on takes three steps, the first two of which cannot be done from a workflow:
+
+   ```
+   1. pypi.org → account settings → Publishing → add a pending publisher:
+      project credmap-cli, owner c-wenlong, repo credmap,
+      workflow release.yml, environment pypi
+   2. GitHub repo settings → Environments → new environment named "pypi"
+   3. gh variable set PUBLISH_TO_PYPI --body true
+   ```
+
+   The repository must be public for this to be worth doing: publishing an sdist publishes the source.
 
 ## Cutting a release
 
@@ -43,7 +53,7 @@ git push origin v0.1.3
 What fires:
 
 - **Nix**: nothing. The tag exists to be pinned. Consumers edit their input and run `nix flake update credmap`.
-- **GitHub Actions**: `release.yml` runs the suite, checks the tag against both version literals, builds with `uv build`, creates a GitHub release with the sdist and wheel attached, and publishes to PyPI with Trusted Publishing and PEP 740 attestations. `ci.yml` runs the suite on every push and pull request on Linux and macOS, Python 3.11 and 3.13.
+- **GitHub Actions**: `release.yml` runs the suite, checks the tag against both version literals, builds with `uv build`, and creates a GitHub release with the sdist and wheel attached. It also publishes to PyPI with Trusted Publishing and PEP 740 attestations, when `PUBLISH_TO_PYPI` is set. `ci.yml` runs the suite on every push and pull request on Linux and macOS, Python 3.11 and 3.13.
 
 Then on the author's machine: make the dotfiles edits in
 [install.md](install.md#with-nix-recommended-for-nix-darwin-and-home-manager-users),
