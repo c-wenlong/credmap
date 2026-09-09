@@ -198,7 +198,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v10.0.1
       # Guards the three places the version lives: the tag, pyproject.toml,
       # and src/credmap/__init__.py.
       - name: Version matches tag
