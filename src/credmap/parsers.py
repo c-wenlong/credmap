@@ -36,15 +36,28 @@ class ParseResult:
     ``doctor`` decided severity by searching notes for substrings like
     "unparsable", which silently misclassified any parser that reworded its
     message.
+
+    ``note_level`` finishes that job. A few notes describe a state that is
+    worth acting on rather than merely knowing about — an SSO login that
+    registered a client and stopped, a directory where some profiles would
+    not open. Those are still notes, because the file was understood, but
+    they are not filed under "by the way". The parser says so here, in a
+    field, so that rewording the sentence can never change how loudly it is
+    reported.
     """
 
     profiles: list[Profile] = field(default_factory=list)
     note: str = ""
     error: str = ""
+    note_level: str = "info"
 
 
-def _ok(profiles: list[Profile] | None = None, note: str = "") -> ParseResult:
-    return ParseResult(profiles=profiles or [], note=note)
+def _ok(
+    profiles: list[Profile] | None = None,
+    note: str = "",
+    note_level: str = "info",
+) -> ParseResult:
+    return ParseResult(profiles=profiles or [], note=note, note_level=note_level)
 
 
 def _fail(error: str, profiles: list[Profile] | None = None) -> ParseResult:
@@ -224,6 +237,19 @@ def parse_ini(path: Path, spec: PathSpec) -> ParseResult:
     return _ok(profiles)
 
 
+def _unreadable_summary(bad: list[str], total: int) -> str:
+    """One sentence for the files in a directory that would not open.
+
+    Same prose whichever channel it ends up in. Which field it is assigned to
+    is what says how bad it is — a caller that greps this string for severity
+    is the bug `note`/`error` exists to prevent. Only exception class names go
+    in, never a message: see `_safe_error` above for why.
+    """
+    names = sorted(set(bad))
+    shown = ", ".join(names[:3]) + (", …" if len(names) > 3 else "")
+    return f"{len(bad)} of {total} profile files could not be read ({shown})"
+
+
 def parse_inidir(path: Path, spec: PathSpec) -> ParseResult:
     """A directory of INI files, one per profile (gcloud configurations/)."""
     profiles = []
@@ -231,14 +257,24 @@ def parse_inidir(path: Path, spec: PathSpec) -> ParseResult:
         entries = sorted(p for p in path.iterdir() if p.is_file())
     except OSError as exc:
         return _fail(str(exc))
+
+    # One bad file must not cost us the others: unlike parse_ini this parser
+    # holds many profiles, and a single mode-000 entry silently emptying the
+    # directory is exactly the lie issue 6 was about. Parse what opens, count
+    # what doesn't, and report the count at the end.
+    failures: list[str] = []
     for entry in entries:
         name = entry.name
         if name.startswith("config_"):
             name = name[len("config_") :]
         cp = configparser.RawConfigParser()
         try:
-            cp.read(entry, encoding="utf-8")
-        except configparser.Error:
+            # Not cp.read(): it swallows OSError and reports success, so a
+            # permission-denied profile looked like one that was never there.
+            with entry.open(encoding="utf-8") as handle:
+                cp.read_file(handle)
+        except (configparser.Error, OSError, UnicodeDecodeError) as exc:
+            failures.append(type(exc).__name__)
             continue
         fields = {
             f"{sect}.{key}": val
@@ -246,7 +282,17 @@ def parse_inidir(path: Path, spec: PathSpec) -> ParseResult:
             for key, val in cp[sect].items()
         }
         profiles.append(Profile(name=name, fields=fields))
-    return _ok(profiles)
+
+    if not failures:
+        return _ok(profiles)
+    summary = _unreadable_summary(failures, len(entries))
+    # Nothing came out of the directory, so the path itself was not
+    # understood — that is an error. If even one profile parsed, the store is
+    # usable and the rest is context, which is what a note is for. It is still
+    # a note the reader should act on, so it carries the warn level.
+    if not profiles:
+        return _fail(summary)
+    return _ok(profiles, summary, note_level="warn")
 
 
 def parse_json(path: Path, spec: PathSpec) -> ParseResult:
@@ -397,10 +443,16 @@ def parse_jsondir(path: Path, spec: PathSpec) -> ParseResult:
         prof.status = expiry_status(expiry)
         profiles.append(prof)
 
-    note = ""
     if profiles and not tokens:
-        note = "client registrations only, no access token — SSO login never completed"
-    return _ok(profiles, note)
+        # Understood the files perfectly; what they describe is a half-finished
+        # login. A note, but one worth acting on, so it is levelled here rather
+        # than recognised downstream by its wording.
+        return _ok(
+            profiles,
+            "client registrations only, no access token — SSO login never completed",
+            note_level="warn",
+        )
+    return _ok(profiles)
 
 
 def parse_keydir(path: Path, spec: PathSpec) -> ParseResult:

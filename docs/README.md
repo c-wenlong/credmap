@@ -26,7 +26,8 @@ wrong. It never writes to a credential file.
 | [formats.md](formats.md) | Every parser and the `select` rule |
 | [development.md](development.md) | Setup, tests, fixtures |
 | [releasing.md](releasing.md) | Cutting a release and what fires |
-| [known-issues.md](known-issues.md) | Verified findings from the 2026-09-09 review, none fixed yet |
+| [known-issues.md](known-issues.md) | The 2026-09-09 review ledger: every finding and which release closed it |
+| [../CHANGELOG.md](../CHANGELOG.md) | What changed in each version |
 
 The [AGENTS.md](../AGENTS.md) at the repo root is the short version of
 architecture.md for coding agents and stays the authority on invariants.

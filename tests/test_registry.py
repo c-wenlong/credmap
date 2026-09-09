@@ -136,6 +136,7 @@ def test_toml_overlay_adds_a_store(fake_home):
         encoding="utf-8",
     )
     overlay.chmod(0o600)
+    overlay.parent.chmod(0o700)
     stores = load()
     acme = next((s for s in stores if s.id == "acme"), None)
     assert acme is not None
@@ -148,16 +149,20 @@ def test_broken_overlay_is_ignored_not_fatal(fake_home):
     overlay.parent.mkdir(parents=True, exist_ok=True)
     overlay.write_text("this is not [ valid toml", encoding="utf-8")
     overlay.chmod(0o600)
+    overlay.parent.chmod(0o700)
     assert len(load()) > 0
 
 
-def write_overlay(text: str, mode: int = 0o600) -> None:
+def write_overlay(text: str, mode: int = 0o600, dir_mode: int = 0o700) -> None:
     overlay = config_home() / "credmap/registry.toml"
     overlay.parent.mkdir(parents=True, exist_ok=True)
     overlay.write_text(textwrap.dedent(text), encoding="utf-8")
-    # Explicit, because load() refuses an overlay anyone else can write and
-    # the mode write_text leaves behind depends on the developer's umask.
+    # Both modes are set explicitly, because load() refuses an overlay anyone
+    # else can write — file or directory — and what write_text and mkdir leave
+    # behind depends on the developer's umask. A machine with umask 002 would
+    # otherwise fail every overlay test here for a reason unrelated to the test.
     overlay.chmod(mode)
+    overlay.parent.chmod(dir_mode)
 
 
 def write_overlay_bytes(data: bytes, mode: int = 0o600) -> None:
@@ -165,6 +170,7 @@ def write_overlay_bytes(data: bytes, mode: int = 0o600) -> None:
     overlay.parent.mkdir(parents=True, exist_ok=True)
     overlay.write_bytes(data)
     overlay.chmod(mode)
+    overlay.parent.chmod(0o700)
 
 
 def store(sid: str):
@@ -312,12 +318,38 @@ def test_a_group_writable_overlay_is_refused(fake_home):
     write_overlay('[aws]\nname = "Work AWS"\n', mode=0o664)
     assert store("aws").name == "AWS CLI"
     assert "writable by group" in registry.OVERLAY_WARNING
+    assert "mode 0664 is writable" in registry.OVERLAY_WARNING
 
 
 def test_an_owner_only_overlay_leaves_no_warning(fake_home):
     write_overlay('[aws]\nname = "Work AWS"\n', mode=0o600)
     assert store("aws").name == "Work AWS"
     assert registry.OVERLAY_WARNING == ""
+
+
+@pytest.mark.parametrize("dir_mode", [0o775, 0o707, 0o777])
+def test_a_group_or_world_writable_overlay_directory_is_refused(fake_home, dir_mode):
+    """Write on the directory is permission to unlink the 0600 file and recreate it."""
+    write_overlay('[aws]\nname = "Work AWS"\n', mode=0o600, dir_mode=dir_mode)
+    try:
+        assert store("aws").name == "AWS CLI"
+        assert "writable by group or others" in registry.OVERLAY_WARNING
+        # The message must name the directory, not the file that is fine.
+        assert f"its directory ~/.config/credmap has mode {dir_mode:04o}" in (
+            registry.OVERLAY_WARNING
+        )
+    finally:
+        (config_home() / "credmap").chmod(0o700)
+
+
+def test_a_0755_overlay_directory_is_fine(fake_home):
+    """0755 is the ordinary mode mkdir leaves; only *write* bits are a problem."""
+    write_overlay('[aws]\nname = "Work AWS"\n', mode=0o600, dir_mode=0o755)
+    try:
+        assert store("aws").name == "Work AWS"
+        assert registry.OVERLAY_WARNING == ""
+    finally:
+        (config_home() / "credmap").chmod(0o700)
 
 
 # --------------------------------------------------------------------------

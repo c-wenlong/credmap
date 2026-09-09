@@ -158,6 +158,77 @@ def test_a_readable_store_with_no_profiles_is_still_reported_as_empty(home):
 
 
 # --------------------------------------------------------------------------
+# note severity is a field, not a phrase
+# --------------------------------------------------------------------------
+
+
+def _one_note(note: str, level: str) -> list[StoreResult]:
+    """A found store whose single path carries exactly this note."""
+    store = a_store()
+    spec = store.paths[0]
+    return [
+        StoreResult(
+            store=store,
+            paths=[
+                FoundPath(
+                    spec=spec,
+                    path=Path.home() / ".acme/creds",
+                    exists=True,
+                    note=note,
+                    note_level=level,
+                )
+            ],
+        )
+    ]
+
+
+def test_a_warn_note_is_reported_as_warn_and_carries_the_fix(home):
+    findings = diagnose(_one_note("anything at all", "warn"))
+    assert [(f.level, f.message) for f in findings] == [("warn", "anything at all")]
+    assert findings[0].fix, "a warning the user can act on names the command"
+
+
+def test_an_info_note_stays_info_and_offers_no_fix(home):
+    findings = diagnose(_one_note("secrets live in the Keychain", "info"))
+    assert [(f.level, f.message) for f in findings] == [
+        ("info", "secrets live in the Keychain")
+    ]
+    assert findings[0].fix == ""
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "client registrations only, no access token — SSO login never completed",
+        "the SSO login was started but never finished",
+        "half a login: a client, no token",
+    ],
+)
+def test_rewording_a_note_cannot_change_its_severity(home, note):
+    """The regression this guards: doctor used to grep notes for substrings.
+
+    Any parser that reworded its message silently downgraded itself to
+    informational. Severity now travels in ``note_level``, so all three of
+    these phrasings must be warnings.
+    """
+    assert [f.level for f in diagnose(_one_note(note, "warn"))] == ["warn"]
+
+
+def test_the_sso_parser_levels_its_own_note(home):
+    """End to end: the level comes from the parser, not from doctor's reading."""
+    import json
+
+    cache = home / ".acme/creds"
+    cache.mkdir(parents=True)
+    (cache / "reg.json").write_text(
+        json.dumps({"clientId": "abc", "registrationExpiresAt": "2030-01-01T00:00:00Z"})
+    )
+    findings = diagnose([scanned(a_store(fmt="jsondir"))])
+    sso = [f for f in findings if "never completed" in f.message]
+    assert sso and sso[0].level == "warn"
+
+
+# --------------------------------------------------------------------------
 # fix lines are meant to be pasted
 # --------------------------------------------------------------------------
 

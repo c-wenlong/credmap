@@ -156,13 +156,6 @@ def _statuses(results: list[StoreResult]) -> list[Finding]:
     return findings
 
 
-# Notes that report a problem rather than context. Parse failures no longer
-# need to appear here: they arrive structurally as FoundPath.error. What is
-# left is the one case where a file parsed perfectly and still describes a
-# broken state — an SSO login that registered a client and stopped.
-_WARN_NOTE_MARKERS = ("never completed",)
-
-
 def _notes(results: list[StoreResult]) -> list[Finding]:
     findings = []
     for result in results:
@@ -170,7 +163,11 @@ def _notes(results: list[StoreResult]) -> list[Finding]:
             continue
         for fp in result.paths:
             if fp.note:
-                warn = any(marker in fp.note for marker in _WARN_NOTE_MARKERS)
+                # The parser decided this, in a field. Nothing here reads the
+                # prose: doctor used to grep notes for substrings like
+                # "unparsable", so a parser that reworded its message silently
+                # downgraded itself.
+                warn = fp.note_level == "warn"
                 findings.append(
                     Finding(
                         level="warn" if warn else "info",

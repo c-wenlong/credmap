@@ -6,7 +6,7 @@
 | Runtime dependency | PyYAML 6+ |
 | Build backend | hatchling, wheel from `src/credmap` |
 | Package manager | uv |
-| Tests | pytest, 216 tests, about 5 s (the liveness tests run stub CLIs with real timeouts) |
+| Tests | pytest, 230 tests, about 5 s (the liveness tests run stub CLIs with real timeouts) |
 
 ```bash
 uv sync                      # after a fresh clone or a move; the venv is not portable

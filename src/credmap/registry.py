@@ -528,15 +528,34 @@ def _unsafe_overlay(path: Path) -> str:
     If anyone but the owner can write it, that is arbitrary file read into
     stdout and arbitrary execution as the owner, from a file nobody looks at.
     Refusing to read it is cheap; the alternative is trusting the mode.
+
+    The directory counts too. Write permission on a directory is permission to
+    unlink and recreate what is in it, so a group-writable
+    ``~/.config/credmap`` hands over the same power as a group-writable
+    ``registry.toml`` — the 0600 mode on the file it replaces is whatever the
+    attacker chose. Both are checked by the same rule, and the message says
+    which one is at fault so the reader knows what to chmod.
     """
-    try:
-        mode = path.stat().st_mode & 0o777
-    except OSError:
-        return ""
-    if mode & 0o022:
+    def mode_of(target: Path) -> int | None:
+        try:
+            return target.stat().st_mode & 0o777
+        except OSError:
+            return None
+
+    mode = mode_of(path)
+    if mode is not None and mode & 0o022:
         return (
             f"ignoring {display(path)}: mode {mode:04o} is writable by group "
             "or others, and this file names paths to read and commands to run"
+        )
+
+    parent = path.parent
+    mode = mode_of(parent)
+    if mode is not None and mode & 0o022:
+        return (
+            f"ignoring {display(path)}: its directory {display(parent)} has "
+            f"mode {mode:04o}, writable by group or others, so anyone can "
+            "replace the file whatever mode the file itself has"
         )
     return ""
 

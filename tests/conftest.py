@@ -18,6 +18,20 @@ import textwrap
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from credmap.registry import BUILTIN
+
+
+def override_vars() -> tuple[str, ...]:
+    """Every environment variable that can relocate a store, plus the XDG roots.
+
+    Derived from the registry so it cannot fall behind a newly added ``Store``.
+    """
+    found = {"XDG_CONFIG_HOME", "XDG_CACHE_HOME"}
+    for store in BUILTIN:
+        for spec in store.paths:
+            found.update(v for v in (spec.env, spec.root_env) if v)
+    return tuple(sorted(found))
+
 import pytest
 
 # Sentinels. If any of these ever reaches default output, the leak test fails.
@@ -75,19 +89,11 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    # Ensure no real env override leaks into the test.
-    for var in (
-        "XDG_CONFIG_HOME",
-        "XDG_CACHE_HOME",
-        "AWS_SHARED_CREDENTIALS_FILE",
-        "AWS_CONFIG_FILE",
-        "CLOUDSDK_CONFIG",
-        "KUBECONFIG",
-        "DOCKER_CONFIG",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        "GH_CONFIG_DIR",
-        "NETRC",
-    ):
+    # Ensure no real env override leaks into the test. The list is derived from
+    # the registry rather than written out, because a hand-maintained copy drifts:
+    # it silently omitted AZURE_CONFIG_DIR and GNUPGHOME, so a developer with
+    # either one set got different results for those two stores.
+    for var in override_vars():
         monkeypatch.delenv(var, raising=False)
 
     config = home / ".config"

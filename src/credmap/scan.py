@@ -31,6 +31,7 @@ def scan_store(store: Store) -> StoreResult:
                     size=st.st_size,
                     profiles=parsed.profiles,
                     note=parsed.note,
+                    note_level=parsed.note_level,
                     error=parsed.error or None,
                 )
             )

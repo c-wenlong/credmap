@@ -43,11 +43,9 @@ and SQLite created a stray database. A test now asserts no file appears.
 
 ## Still open
 
-Listed with detail in [known-issues.md](known-issues.md): an unparsable
-credentials file is a `doctor` warning rather than an exit-1 error, by
-decision; an unreadable file inside gcloud's `configurations/` directory is
-skipped silently; and the overlay permission check covers the file, not its
-parent directory.
+One, by decision: an unparsable credentials file is a `doctor` warning rather
+than an exit-1 error, because `doctor` fails only on something provable. See
+[known-issues.md](known-issues.md).
 
 ## Things to know
 

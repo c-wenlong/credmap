@@ -14,8 +14,12 @@ credmap never runs that command itself.
 | CLI missing | info | Credentials exist but the provider CLI is not installed (only with `--check`) | |
 | Shared secret | warn | The same secret string appears in two or more profiles across `secrets`-role paths | `these are the same credential — revoking it breaks all of them` |
 | SSO never completed | warn | An AWS SSO cache holds client registrations but no access token | the store's login command |
+| Unreadable profiles | warn | Some files in a config directory could not be opened, though others parsed | the store's login command |
 | Unparsable file | warn | A path exists but its parser reported an error | the store's login command |
 | Other notes | info | Keychain indirection, current kube context, stale gcloud token cache, opaque stores | |
+
+A note's severity comes from a field the parser sets, not from its wording, so
+rephrasing a message can never change how it is reported.
 | Loose permissions | warn | A `secrets`, `keys` or `token-cache` path is readable by group or others | `chmod 600 <path>`, or `chmod 700` for a directory, with the path shell-quoted |
 | Bloat | info | A declared bloat directory exceeds its threshold (gcloud logs over 500 MB); size shown in MB below 1 GB | `rm -rf <path>/*`, with the path shell-quoted and a leading `~/` left for the shell to expand |
 | Empty store | info | The store's marker exists but no profiles were parsed and no note explains why | |

@@ -108,6 +108,9 @@ class FoundPath:
     profiles: list[Profile] = field(default_factory=list)
     error: str | None = None
     note: str = ""
+    # "info" or "warn". Set by the parser, never inferred from the note's
+    # wording; see ParseResult in parsers.py.
+    note_level: str = "info"
 
 
 @dataclass

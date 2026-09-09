@@ -3,16 +3,20 @@
 Findings from the code review on 2026-09-09, against commit `11c16e0`. All
 were verified by reading the code, and rows marked "reproduced" were
 exercised against a synthetic home. Rows marked **fixed** were closed the
-same day in v0.1.1 or v0.1.2, each with a test that fails if the fix is
-reverted. The two rows still open are kept by decision, not by omission.
+same day in v0.1.1 or v0.1.3, each with a test that fails if the fix is
+reverted. Findings 30 to 32 were found while fixing the others.
 
-## Still open
+Everything is closed except one row, which is a decision rather than an
+omission.
+
+## Open by decision
 
 | # | Where | Problem | Decision |
 |---|---|---|---|
 | 10 | `doctor.py`, `cli.py` | A parse failure is `warn`, and only `error` exits 1, so an unreadable credentials file exits 0. | Kept. `doctor` exits non-zero only on something provable, and an unparsable file is a warning to investigate, not proof the credential is dead. Documented in [doctor.md](doctor.md). |
-| 30 | `parsers.py` `parse_inidir` | Same root as issue 6: an unreadable file inside gcloud's `configurations/` is skipped silently rather than reported. | Open. Low impact, since the directory holds configuration names rather than secrets. |
-| 31 | `registry.py` overlay loader | The permission check covers `registry.toml` itself, not its parent directory. A group-writable `~/.config/credmap` still lets another local user replace the file. | Open. Checking the directory would make the suite sensitive to the developer's umask; revisit if a second user ever shares a machine. |
+| 30 | `parsers.py` `parse_inidir` | An unreadable file inside a config directory was skipped silently. | **fixed** in v0.1.3: an error when nothing parsed, a `warn` note counting the failures when some did |
+| 31 | `registry.py` overlay loader | The permission check covered `registry.toml` but not its parent directory, and write permission on a directory is permission to replace what is in it. | **fixed** in v0.1.3: both are checked, and the warning says which one is at fault |
+| 32 | `doctor.py` note severity | `doctor` decided a note's severity by searching it for `"never completed"`, contradicting the invariant that severity is structural. | **fixed** in v0.1.3: `note_level` is set by the parser, with a test over three phrasings of one note |
 
 ## Secret leaks
 
@@ -71,13 +75,13 @@ could not place, which can be the password, so netrc was fixed too.
 
 ## Documentation drift
 
-Fixed in this docs folder and, where noted, in the README; AGENTS.md is
-unchanged and still says the following.
+All closed. The README, AGENTS.md and this folder now agree with the code.
 
-- 65 tests. The suite has 216.
-- "Assign an empty value to drop an inherited one" now holds for every field including `paths`, where it removes the store.
-- Doctor never pattern-matches note prose, but `_WARN_NOTE_MARKERS = ("never completed",)` still does.
-- `fake_home` clears every override variable; it omits `AZURE_CONFIG_DIR` and `GNUPGHOME`.
+- The test count was stated as 65 in two places; the suite has 230.
+- AGENTS.md claimed severity is never decided by pattern-matching note prose, while `doctor` searched notes for `"never completed"`. Notes now carry a `note_level` set by the parser, the substring list is deleted, and a test asserts that three different phrasings of the same note keep the same severity.
+- AGENTS.md claimed `fake_home` clears every override variable; it omitted `AZURE_CONFIG_DIR` and `GNUPGHOME`. The list is now derived from the registry, so it covers all 12 and cannot fall behind a new store.
+- "Assign an empty value to drop an inherited one" now holds for every field, `paths` included, where it removes the store.
+- The README described `--all`, `--check` and `--reveal` as though they were global, and did not mention `paths --found`.
 
 ## Test coverage
 

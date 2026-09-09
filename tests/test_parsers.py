@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from credmap.model import EXPIRED, PathSpec
-from credmap.parsers import parse_ini, parse_sqlite_gcloud
+from credmap.parsers import parse_ini, parse_inidir, parse_sqlite_gcloud
 from credmap.registry import find, load
 from credmap.scan import scan, scan_store
 
@@ -192,10 +192,13 @@ SQLITE_SPEC = PathSpec(path="{config}/gcloud/credentials.db", fmt="sqlite-gcloud
 _UNREADABLE_SENTINEL = "FAKE-unreadable-ini-secret-0123456789"
 
 
-@pytest.mark.skipif(
+_NOT_ROOT = pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0,
     reason="root reads a mode-000 file regardless of its mode",
 )
+
+
+@_NOT_ROOT
 def test_permission_denied_ini_is_an_error_not_an_empty_file(tmp_path):
     """`ConfigParser.read` swallows OSError; an empty result would be a lie."""
     path = tmp_path / "credentials"
@@ -222,6 +225,73 @@ def test_undecodable_ini_is_an_error_that_quotes_nothing(tmp_path):
     assert result.profiles == []
     assert "unreadable INI" in result.error
     assert "UnicodeDecodeError" in result.error
+
+
+INIDIR_SPEC = PathSpec(path="{config}/gcloud/configurations", fmt="inidir")
+
+_INIDIR_SENTINEL = "FAKE-unreadable-configuration-9876543210"
+
+
+def _configurations(root: Path, names: list[str]) -> Path:
+    d = root / "configurations"
+    d.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (d / f"config_{n}").write_text(
+            f"[core]\nproject = {n}-{_INIDIR_SENTINEL}\n", encoding="utf-8"
+        )
+    return d
+
+
+@_NOT_ROOT
+def test_one_unreadable_profile_file_does_not_lose_the_others(tmp_path):
+    """`cp.read` swallowed OSError, so a mode-000 entry vanished without trace."""
+    d = _configurations(tmp_path, ["alpha", "beta", "gamma"])
+    (d / "config_beta").chmod(0o000)
+    try:
+        result = parse_inidir(d, INIDIR_SPEC)
+    finally:
+        (d / "config_beta").chmod(0o600)
+
+    assert [p.name for p in result.profiles] == ["alpha", "gamma"]
+    # Two of three survived, so the path was understood. That is a note.
+    assert not result.error
+    assert result.note == "1 of 3 profile files could not be read (PermissionError)"
+    assert _INIDIR_SENTINEL not in result.note
+
+
+@_NOT_ROOT
+def test_a_wholly_unreadable_config_directory_is_an_error(tmp_path):
+    """Nothing came out, so "no profiles" would be indistinguishable from empty."""
+    d = _configurations(tmp_path, ["alpha", "beta"])
+    for entry in d.iterdir():
+        entry.chmod(0o000)
+    try:
+        result = parse_inidir(d, INIDIR_SPEC)
+    finally:
+        for entry in d.iterdir():
+            entry.chmod(0o600)
+
+    assert result.profiles == []
+    assert not result.note
+    assert result.error == "2 of 2 profile files could not be read (PermissionError)"
+    assert _INIDIR_SENTINEL not in result.error
+
+
+def test_an_undecodable_profile_file_is_counted_too(tmp_path):
+    d = _configurations(tmp_path, ["alpha"])
+    (d / "config_beta").write_bytes(b"[core]\nproject = \xff\xfe\n")
+    result = parse_inidir(d, INIDIR_SPEC)
+    assert [p.name for p in result.profiles] == ["alpha"]
+    assert not result.error
+    assert result.note == "1 of 2 profile files could not be read (UnicodeDecodeError)"
+
+
+def test_a_readable_config_directory_reports_nothing(tmp_path):
+    d = _configurations(tmp_path, ["alpha", "beta"])
+    result = parse_inidir(d, INIDIR_SPEC)
+    assert [p.name for p in result.profiles] == ["alpha", "beta"]
+    assert not result.error and not result.note
+    assert result.profiles[0].fields["core.project"] == f"alpha-{_INIDIR_SENTINEL}"
 
 
 def test_readable_ini_still_parses(tmp_path):

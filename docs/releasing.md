@@ -31,10 +31,13 @@ The version lives in two places today: `pyproject.toml` and
 guard below, so bump both.
 
 ```bash
-# bump version in pyproject.toml and src/credmap/__init__.py, then
-git commit -am "Release v0.1.1"
-git tag v0.1.1
-git push && git push --tags
+# bump version in pyproject.toml and src/credmap/__init__.py,
+# add a section to CHANGELOG.md, then
+uv lock                      # keeps uv.lock in step, or CI's --frozen sync fails
+git commit -am "Release 0.1.3"
+git tag -a v0.1.3 -m "credmap 0.1.3"
+git push origin main
+git push origin v0.1.3
 ```
 
 What fires:
