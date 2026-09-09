@@ -29,7 +29,7 @@ In your `flake.nix` inputs:
 
 ```nix
 credmap = {
-  url = "github:c-wenlong/credmap/v0.1.0";
+  url = "github:c-wenlong/credmap/v0.1.4";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 ```

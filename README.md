@@ -24,7 +24,7 @@ list; `nix run github:c-wenlong/credmap` works for a one-off:
 
 ```nix
 inputs.credmap = {
-  url = "github:c-wenlong/credmap/v0.1.1";
+  url = "github:c-wenlong/credmap/v0.1.4";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 # then, in home.packages or environment.systemPackages:

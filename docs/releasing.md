@@ -20,8 +20,8 @@ the repo goes public, and do not run a Homebrew tap.** The reasoning is in
 
 1. **`LICENSE` is MIT**, added 2026-09-09. `license-files`, the flake's `meta.license` and any nixpkgs submission depend on it.
 2. **Decide visibility.** Public unlocks PyPI and removes the access-token bootstrap. Private is fine and flake-only.
-3. **Fix the secret leaks in [known-issues.md](known-issues.md#secret-leaks).** A release that prints a credential on a malformed file should not be the first one people install.
-4. **`flake.nix` is in the repo** (reproduced below). After changing it, run `nix build` and commit the regenerated `flake.lock`.
+3. **The secret leaks are fixed**, in v0.1.1 and v0.1.3. A release that prints a credential on a malformed file should not be one people install; see [known-issues.md](known-issues.md).
+4. **`flake.nix` is in the repo.** After changing it, run `nix build` and commit the regenerated `flake.lock`.
 5. **PyPI is wired but switched off.** `pyproject.toml` carries the `credmap-cli` name and metadata, and `release.yml` has the publish job, but the job is skipped unless the repository variable `PUBLISH_TO_PYPI` is `true`. Turning it on takes three steps, the first two of which cannot be done from a workflow:
 
    ```
@@ -44,10 +44,10 @@ guard below, so bump both.
 # bump version in pyproject.toml and src/credmap/__init__.py,
 # add a section to CHANGELOG.md, then
 uv lock                      # keeps uv.lock in step, or CI's --frozen sync fails
-git commit -am "Release 0.1.3"
-git tag -a v0.1.3 -m "credmap 0.1.3"
+git commit -am "Release 0.1.4"
+git tag -a v0.1.4 -m "credmap 0.1.4"
 git push origin main
-git push origin v0.1.3
+git push origin v0.1.4
 ```
 
 What fires:
@@ -61,204 +61,43 @@ run the rebuild, and `uv tool uninstall credmap`.
 
 ## `flake.nix`
 
-Verified by building on `aarch64-darwin`: `nix build` succeeded, the import
-check passed, and all 74 tests ran under `pytestCheckHook`.
+The file is [`flake.nix`](../flake.nix) in the repository root; read it there
+rather than from a copy here, which would drift. It builds with
+`buildPythonApplication` against the same nixpkgs branch the author's machine
+pins, reads its version out of `pyproject.toml` so the tag and the derivation
+cannot disagree, and runs the suite under `pytestCheckHook`.
 
-```nix
-{
-  description = "Read-only discovery for credential stores scattered across your machine";
-
-  # Matches the consumer's dotfiles pin, so `follows` dedupes rather than
-  # silently swapping Python 3.14 (unstable) for 3.13 (26.05).
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
-
-  outputs = { self, nixpkgs }:
-    let
-      inherit (nixpkgs) lib;
-      systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
-      forAllSystems = f: lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
-    in
-    {
-      packages = forAllSystems (pkgs: rec {
-        default = credmap;
-
-        credmap = pkgs.python3Packages.buildPythonApplication {
-          pname = "credmap";
-          # Single source of truth: the tag, the wheel and the derivation
-          # cannot drift apart.
-          version = (lib.importTOML ./pyproject.toml).project.version;
-          pyproject = true;
-
-          # Only these paths affect the build hash. Editing AGENTS.md or
-          # uv.lock does not trigger a rebuild.
-          src = lib.fileset.toSource {
-            root = ./.;
-            fileset = lib.fileset.unions [
-              ./pyproject.toml
-              ./README.md   # pyproject declares readme = "README.md"
-              ./src
-              ./tests
-            ];
-          };
-
-          build-system = with pkgs.python3Packages; [ hatchling ];
-          dependencies = with pkgs.python3Packages; [ pyyaml ];
-          nativeCheckInputs = with pkgs.python3Packages; [ pytestCheckHook ];
-          pythonImportsCheck = [ "credmap" ];
-
-          meta = {
-            description = "Read-only discovery for credential stores scattered across your machine";
-            homepage = "https://github.com/c-wenlong/credmap";
-            license = lib.licenses.mit;   # add a LICENSE file to make this true
-            mainProgram = "credmap";
-            platforms = lib.platforms.unix;
-          };
-        };
-      });
-
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          packages = [
-            (pkgs.python3.withPackages (ps: [ ps.pyyaml ps.pytest ]))
-            pkgs.uv
-          ];
-        };
-      });
-    };
-}
-```
-
-Notes:
+Notes worth keeping:
 
 - `pyproject = true` with `build-system` and `dependencies` is the current form; `format = "pyproject"` with `propagatedBuildInputs` is deprecated.
+- The `src` fileset lists only `pyproject.toml`, `README.md`, `src` and `tests`, so editing AGENTS.md or `uv.lock` does not trigger a rebuild.
 - Untracked files are silently dropped from a flake build. A new module you forgot to `git add` produces a confusing failure or a silently incomplete build.
 - The flake never reads `uv.lock`. uv stays the local dev tool; Nix resolves PyYAML from nixpkgs. uv2nix would add three inputs to solve a lockfile-fidelity problem a one-dependency project does not have.
 - Do not switch to `hatch-vcs`. A source tarball has no `.git` for the tag to be read from, and the derivation reads the version out of `pyproject.toml`.
 
 ## PyPI metadata
 
-Already in `pyproject.toml`; reproduced for reference.
+In [`pyproject.toml`](../pyproject.toml). The distribution is `credmap-cli`
+while the import package and the console script stay `credmap`; the
+`[tool.hatch.build.targets.wheel] packages` line is what allows that, by
+overriding hatchling's name-based inference of the source directory.
 
-```toml
-[build-system]
-requires = ["hatchling>=1.27"]
-build-backend = "hatchling.build"
+Do not add a `License :: OSI Approved` classifier alongside `license = "MIT"`;
+build tools may reject having both. Hatchling validates classifiers against the
+live trove list, so a typo fails the build.
 
-[project]
-name = "credmap-cli"
-version = "0.1.0"
-description = "Read-only discovery for credential stores scattered across your machine"
-readme = "README.md"
-requires-python = ">=3.11"
-license = "MIT"
-license-files = ["LICENSE"]
-authors = [{ name = "Kai Chen" }]
-keywords = ["credentials", "secrets", "cli", "discovery"]
-classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Environment :: Console",
-  "Intended Audience :: Developers",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Topic :: Security",
-  "Topic :: Utilities",
-]
-dependencies = ["PyYAML>=6.0"]
+## Workflows
 
-[project.scripts]
-credmap = "credmap.cli:main"
+[`ci.yml`](../.github/workflows/ci.yml) and
+[`release.yml`](../.github/workflows/release.yml).
 
-[project.urls]
-Homepage = "https://github.com/c-wenlong/credmap"
-Issues = "https://github.com/c-wenlong/credmap/issues"
-Changelog = "https://github.com/c-wenlong/credmap/releases"
+Two things in them were learned the hard way. Pin actions to tags that exist:
+the first release failed because `astral-sh/setup-uv@v9` was invented, and
+there is no `v9` major tag. And attestations are on by default in
+`gh-action-pypi-publish` from v1.11.0, needing only `id-token: write`.
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/credmap"]
-```
-
-The existing `packages = ["src/credmap"]` line is what lets the distribution
-name differ from the import name. Do not add a `License :: OSI Approved`
-classifier alongside `license = "MIT"`; build tools may reject both.
-
-Trusted Publishing for a project that does not exist yet goes through a
-pending publisher: PyPI account settings, Publishing, add a pending publisher
-with project `credmap-cli`, owner `c-wenlong`, repository `credmap`, workflow
-`release.yml`, environment `pypi`. The name is not reserved until the first
-successful publish.
-
-## `.github/workflows/release.yml`
-
-Already in the repo; reproduced for reference.
-
-```yaml
-name: Release
-
-on:
-  push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
-
-permissions: {}
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.0.1
-      # Guards the three places the version lives: the tag, pyproject.toml,
-      # and src/credmap/__init__.py.
-      - name: Version matches tag
-        run: |
-          test "v$(uv version --short)" = "$GITHUB_REF_NAME"
-          grep -q "__version__ = \"$(uv version --short)\"" src/credmap/__init__.py
-      - run: uv build --no-sources
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/credmap-cli
-    permissions:
-      id-token: write   # Trusted Publishing and PEP 740 attestations
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@v1.14.2
-
-  github-release:
-    needs: publish
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-      - env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME"
-          --repo "$GITHUB_REPOSITORY" --generate-notes dist/*
-```
-
-Attestations are on by default in the publish action from v1.11.0. A release
-created with `GITHUB_TOKEN` does not trigger downstream `on: release`
-workflows.
+A release created with `GITHUB_TOKEN` does not trigger downstream
+`on: release` workflows, which is why nothing else keys off it.
 
 ## Homebrew, if ever needed
 
