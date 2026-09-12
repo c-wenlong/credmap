@@ -8,7 +8,7 @@ wrong. It never writes to a credential file.
 
 | Page | What it covers |
 |---|---|
-| [install.md](install.md) | Installing and upgrading, including through Homebrew and nix-darwin |
+| [install.md](install.md) | Installing and upgrading, including through nix-darwin. There is no Homebrew tap |
 | [cli.md](cli.md) | Every verb, flag and exit code |
 | [stores.md](stores.md) | The 26 built-in providers, their paths, aliases and probes, and how paths are resolved |
 | [doctor.md](doctor.md) | What `doctor` checks and when it fails a pre-flight |

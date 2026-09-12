@@ -7,7 +7,7 @@ the only combination that emits full values.
 | Command | Top-level shape |
 |---|---|
 | `scan --json` | Array of store objects, only `found` stores unless `--all` |
-| `paths --json` | Array of store objects for every store. `--found` does not filter JSON |
+| `paths --json` | Array of store objects for every store. `--found` drops absent path entries and then any store left with no paths |
 | `where --json` | Array of store objects, one per match |
 | `show --json` | One store object, not an array |
 | `doctor --json` | Array of finding objects |
@@ -57,7 +57,7 @@ the only combination that emits full values.
 | `paths[].path` | string | Absolute, never `~` |
 | `paths[].exists` | bool | |
 | `paths[].mode` | string or null | Zero-padded octal such as `"0644"`; null when absent |
-| `paths[].size` | int | Bytes, or a recursive total for a directory |
+| `paths[].size` | int | Bytes as `stat` reports them. For a directory that is the directory entry itself, not its contents |
 | `paths[].env_override` | string or null | Name of the variable that relocated this path |
 | `paths[].note` | string | Empty when unset |
 | `paths[].error` | string or null | Parser failure, if any |

@@ -104,10 +104,12 @@ uv tool uninstall credmap
 
 ## From PyPI
 
-The distribution name is `credmap-cli` because `credmap` on PyPI is held by
-an unrelated 2022 upload. The command is still `credmap`. The release
-workflow publishes on every tag once the Trusted Publisher is registered;
-see [releasing.md](releasing.md).
+Nothing is published yet. The distribution name is reserved as `credmap-cli`
+because `credmap` on PyPI is held by an unrelated 2022 upload, and the
+command stays `credmap` either way. The release workflow carries the publish
+job but skips it unless the repository variable `PUBLISH_TO_PYPI` is `true`,
+which also needs a registered Trusted Publisher and a `pypi` environment;
+see [releasing.md](releasing.md). Once it is switched on:
 
 ```bash
 uv tool install credmap-cli

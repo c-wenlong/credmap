@@ -17,12 +17,12 @@ credmap never runs that command itself.
 | Unreadable profiles | warn | Some files in a config directory could not be opened, though others parsed | the store's login command |
 | Unparsable file | warn | A path exists but its parser reported an error | the store's login command |
 | Other notes | info | Keychain indirection, current kube context, stale gcloud token cache, opaque stores | |
-
-A note's severity comes from a field the parser sets, not from its wording, so
-rephrasing a message can never change how it is reported.
 | Loose permissions | warn | A `secrets`, `keys` or `token-cache` path is readable by group or others | `chmod 600 <path>`, or `chmod 700` for a directory, with the path shell-quoted |
 | Bloat | info | A declared bloat directory exceeds its threshold (gcloud logs over 500 MB); size shown in MB below 1 GB | `rm -rf <path>/*`, with the path shell-quoted and a leading `~/` left for the shell to expand |
 | Empty store | info | The store's marker exists but no profiles were parsed and no note explains why | |
+
+A note's severity comes from a field the parser sets, not from its wording, so
+rephrasing a message can never change how it is reported.
 
 Token caches are excluded from the shared-secret check because they
 legitimately repeat the client secret that minted them.

@@ -43,7 +43,7 @@ guard below, so bump both.
 ```bash
 # bump version in pyproject.toml and src/credmap/__init__.py,
 # add a section to CHANGELOG.md, then
-uv lock                      # keeps uv.lock in step, or CI's --frozen sync fails
+uv lock                      # keeps uv.lock in step, or CI's --locked sync fails
 git commit -am "Release 0.1.4"
 git tag -a v0.1.4 -m "credmap 0.1.4"
 git push origin main

@@ -127,5 +127,7 @@ need to see to `id_fields` rather than relying on the heuristic.
 The overlay can point credmap at any readable file and can declare any probe
 command, so it carries the same trust as your shell profile. A
 `registry.toml` that is writable by group or others is ignored, and a
-warning is printed to stderr once per run saying so. Keep the directory
-writable only by you as well; the directory itself is not checked.
+warning is printed to stderr once per run saying so. Its parent directory is
+checked by the same rule, because write permission on a directory is
+permission to replace the file inside it, and the warning names whichever of
+the two is at fault.
