@@ -13,7 +13,7 @@
 ## Checklist
 
 - [ ] `uv run pytest -q` passes locally
-- [ ] `uv lock` is in sync with `pyproject.toml` (CI runs `uv sync --frozen`)
+- [ ] `uv lock` is in sync with `pyproject.toml` (CI runs `uv sync --locked`)
 - [ ] No credential-like file committed. Fixtures are generated in `tests/conftest.py`
 - [ ] The read-only invariant holds: no write, rename, unlink or mkdir against a credential path
 - [ ] No new output channel bypasses `redact.scrub`, and any new renderer is in `tests/test_redact.py`'s `_all_output()`

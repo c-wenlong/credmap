@@ -44,7 +44,7 @@ build-backend = "hatchling.build"
 packages = ["src/credmap"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-cov>=6.0", "ruff>=0.16"]
+dev = ["pytest>=8.0", "pytest-cov>=6.0", "ruff>=0.16", "zizmor>=1.30"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

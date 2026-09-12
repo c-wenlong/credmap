@@ -34,9 +34,10 @@ each test file covers, and how the fixtures are built.
 
 ## Project layout
 
-Eleven modules under `src/credmap/`. The load-bearing seam is that **the
-registry is data and the parsers are behaviour**: adding a provider should be a
-`Store(...)` literal and nothing else.
+Twelve modules under `src/credmap/`, counting `__init__.py` and `__main__.py`.
+The load-bearing seam is that **the registry is data and the parsers are
+behaviour**: adding a provider should be a `Store(...)` literal and nothing
+else. The ten that carry logic:
 
 | Module | Role |
 | --- | --- |

@@ -2,7 +2,7 @@
 # https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
 #
 # Two ecosystems. `uv` reads uv.lock and pyproject.toml, which matters here
-# because CI runs `uv sync --frozen` and a lockfile that has drifted from
+# because CI runs `uv sync --locked` and a lockfile that has drifted from
 # pyproject.toml fails the build.
 version: 2
 updates:

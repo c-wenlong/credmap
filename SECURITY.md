@@ -69,7 +69,8 @@ Known and by design, so not a vulnerability:
   or longer, plus its length.
 - **The overlay at `~/.config/credmap/registry.toml` has your full authority.**
   It can point credmap at any readable file and declare any command for
-  `--check`. A group- or world-writable overlay file is refused with a warning;
-  the containing directory is not checked, so keep it writable only by you.
+  `--check`. A group- or world-writable overlay file is refused with a warning,
+  and its containing directory is checked by the same rule, because write
+  permission on a directory is permission to replace the file inside it.
 - **Symlinks are followed**, and the permission audit reports the target's real
   mode. It is your home directory.

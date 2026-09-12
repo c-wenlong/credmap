@@ -52,8 +52,10 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       # Static analysis of the workflows themselves: credential persistence,
-      # template injection, over-broad permissions.
-      - run: uvx zizmor .github/workflows
+      # template injection, over-broad permissions. Run through the locked dev
+      # group, not uvx, so a new zizmor release cannot turn a green commit red
+      # without a lockfile change.
+      - run: uv run zizmor .github/workflows
 
   coverage:
     name: Coverage
@@ -70,7 +72,9 @@ jobs:
       - name: Run the suite under coverage
         run: uv run pytest -q --cov=credmap --cov-report=term-missing --cov-report=xml
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+        # Pinned to a commit, not a tag: this is the only step handed a secret,
+        # so a moved tag must not be able to change the code that reads it.
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml

@@ -29,7 +29,7 @@ rewritten as `contextlib.suppress`, and long string literals split.
 ### CI
 
 - New jobs in `ci.yml`: coverage with a Codecov upload that cannot fail the build, a smoke test that installs the built wheel into a fresh venv and runs its entry point against a temporary `$HOME`, a `nix build` plus `nix flake check`, and a lint job.
-- The lint job runs `ruff check`, `ruff format --check` and `zizmor` over the workflow files. Ruff is configured in `pyproject.toml`: line length 88, target py311, rules `E F I UP B SIM RUF`.
+- The lint job runs `ruff check`, `ruff format --check` and `zizmor` over the workflow files. Both tools come from the locked dev group, so a new release cannot turn a green commit red without a lockfile change. Ruff is configured in `pyproject.toml`: line length 88, target py311, rules `E F I UP B SIM RUF`.
 - pytest now runs with `filterwarnings = ["error"]`, `--strict-markers`, `--strict-config` and `xfail_strict`, so a warning is a failure.
 - Both workflows sync with `uv sync --locked` instead of `--frozen`, which turns a `uv.lock` that has drifted from `pyproject.toml` into a CI failure rather than a silent skip.
 - `actions/checkout` to v7, `astral-sh/setup-uv` to v10.1.0, and the nix job to `DeterminateSystems/determinate-nix-action@v3`.
