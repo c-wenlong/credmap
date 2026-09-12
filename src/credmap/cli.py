@@ -35,7 +35,9 @@ examples:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="credmap",
-        description="Read-only discovery for credential stores scattered across your machine.",
+        description=(
+            "Read-only discovery for credential stores scattered across your machine."
+        ),
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -48,18 +50,26 @@ def build_parser() -> argparse.ArgumentParser:
         return sp
 
     p_scan = add("scan", "list credential stores found on this machine (default)")
-    p_scan.add_argument("--all", action="store_true", help="also list known-but-absent stores")
-    p_scan.add_argument("--check", action="store_true", help="verify credentials still work")
+    p_scan.add_argument(
+        "--all", action="store_true", help="also list known-but-absent stores"
+    )
+    p_scan.add_argument(
+        "--check", action="store_true", help="verify credentials still work"
+    )
 
     p_paths = add("paths", "the registry of known credential paths")
     p_paths.add_argument("--found", action="store_true", help="only paths that exist")
 
     p_where = add("where", "locate a provider's credentials")
-    p_where.add_argument("query", help="provider name, alias or kind (e.g. gcp, aws, k8s)")
+    p_where.add_argument(
+        "query", help="provider name, alias or kind (e.g. gcp, aws, k8s)"
+    )
 
     p_show = add("show", "show one store in detail")
     p_show.add_argument("store", help="store id or alias")
-    p_show.add_argument("--check", action="store_true", help="verify credentials still work")
+    p_show.add_argument(
+        "--check", action="store_true", help="verify credentials still work"
+    )
     p_show.add_argument(
         "--reveal",
         action="store_true",
@@ -67,7 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_doctor = add("doctor", "report problems with the credentials found")
-    p_doctor.add_argument("--check", action="store_true", help="verify credentials still work")
+    p_doctor.add_argument(
+        "--check", action="store_true", help="verify credentials still work"
+    )
 
     return parser
 

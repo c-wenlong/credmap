@@ -82,7 +82,10 @@ def test_one_profile_holding_a_secret_twice_is_not_a_duplicate(home):
     """
     prof = Profile(
         name="only",
-        fields={"api_secret": "FAKE-shared-value-01234", "api_secret_again": "FAKE-shared-value-01234"},
+        fields={
+            "api_secret": "FAKE-shared-value-01234",
+            "api_secret_again": "FAKE-shared-value-01234",
+        },
     )
     assert shared(diagnose([a_result(a_store(), [prof])])) == []
 
@@ -90,8 +93,11 @@ def test_one_profile_holding_a_secret_twice_is_not_a_duplicate(home):
 def test_one_profile_seen_in_two_files_of_a_store_is_not_a_duplicate(home):
     """AWS 'default' lives in both credentials and config. Still one identity."""
     fields = {"api_secret": "FAKE-shared-value-01234"}
-    result = a_result(a_store(), [Profile(name="default", fields=dict(fields))],
-                      [Profile(name="default", fields=dict(fields))])
+    result = a_result(
+        a_store(),
+        [Profile(name="default", fields=dict(fields))],
+        [Profile(name="default", fields=dict(fields))],
+    )
     assert shared(diagnose([result])) == []
 
 
@@ -115,7 +121,9 @@ def test_two_profiles_sharing_across_stores_are_reported(home):
     """The same key pasted into two providers is the case worth catching."""
     value = "FAKE-shared-value-01234"
     results = [
-        a_result(a_store("acme"), [Profile(name="alpha", fields={"api_secret": value})]),
+        a_result(
+            a_store("acme"), [Profile(name="alpha", fields={"api_secret": value})]
+        ),
         a_result(a_store("beta"), [Profile(name="prod", fields={"api_secret": value})]),
     ]
     findings = shared(diagnose(results))
@@ -240,7 +248,9 @@ def test_chmod_fix_survives_a_space_in_the_path(home):
         id="acme",
         name="ACME",
         kind="misc",
-        paths=(PathSpec("~/.acme/creds file", fmt="json", role="secrets", marker=True),),
+        paths=(
+            PathSpec("~/.acme/creds file", fmt="json", role="secrets", marker=True),
+        ),
     )
     fix = next(f.fix for f in diagnose([scanned(store)]) if f.fix.startswith("chmod"))
     assert shlex.split(fix) == ["chmod", "600", "~/.acme/creds file"]
@@ -279,7 +289,9 @@ def test_bloat_size_reads_in_megabytes(home):
     (logs / "one.log").write_bytes(b"x" * (2 * 1024 * 1024))
 
     store = a_store(bloat=(("~/.acme/logs", 1),))
-    message = next(f.message for f in diagnose([scanned(store)]) if "of logs" in f.message)
+    message = next(
+        f.message for f in diagnose([scanned(store)]) if "of logs" in f.message
+    )
     assert "2 MB" in message
     assert "GB" not in message
 

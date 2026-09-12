@@ -133,7 +133,10 @@ def test_multi_line_values_are_masked_whatever_the_key(fake_home):
 
 
 def test_passphrase_is_secret():
-    """The sharp one: ``password`` and ``passwd`` were listed, ``passphrase`` was not."""
+    """The sharp one: ``password`` and ``passwd`` were listed.
+
+    ``passphrase`` was not.
+    """
     assert is_secret("passphrase")
     assert is_secret("mnemonic")
     assert is_secret("session_cookie")

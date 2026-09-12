@@ -250,7 +250,7 @@ def test_new_store_still_requires_paths(fake_home):
 
 
 def test_an_empty_paths_list_drops_the_inherited_paths(fake_home):
-    """"Assign an empty value to remove an inherited one" has to hold here too.
+    """ "Assign an empty value to remove an inherited one" has to hold here too.
 
     It used to fall back to the built-in list, so the one key you would reach
     for to stop credmap looking at a store was the one key with no effect. A

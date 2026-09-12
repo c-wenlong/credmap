@@ -30,7 +30,6 @@ from credmap.model import (
     StoreResult,
 )
 
-
 # --------------------------------------------------------------------------
 # harness
 # --------------------------------------------------------------------------
@@ -68,7 +67,9 @@ def make_store(argv, extract=None, timeout=5) -> Store:
 
 def make_path(profiles, role="secrets", exists=True, identities=None) -> FoundPath:
     spec = PathSpec("~/test", fmt="ini", role=role, identities=identities)
-    return FoundPath(spec=spec, path=Path("/nonexistent/test"), exists=exists, profiles=profiles)
+    return FoundPath(
+        spec=spec, path=Path("/nonexistent/test"), exists=exists, profiles=profiles
+    )
 
 
 def make_result(store: Store, *paths: FoundPath) -> StoreResult:
@@ -172,7 +173,7 @@ def test_extract_becomes_the_detail(stub):
 def test_extract_is_scrubbed(stub):
     """`extract` is an overlay-controlled key into arbitrary stdout."""
     token = "A" * 40
-    stub("prov", f"echo '{{\"Account\": \"{token}\"}}'\n")
+    stub("prov", f'echo \'{{"Account": "{token}"}}\'\n')
     store = make_store(["prov", "--profile", "{profile}"], extract="Account")
     result, (prof,) = one(store, "default")
 
@@ -259,7 +260,9 @@ def test_json_output_matches_account_values_exactly(stub):
     """`gcloud auth list --format=json` names the accounts; use them."""
     stub("prov", f"cat <<'EOF'\n{GCLOUD_JSON.strip()}\nEOF\n")
     store = make_store(["prov", "auth", "list", "--format=json"])
-    result, (kai, bot, active) = one(store, "kai@example.com", "bot@example.com", "ACTIVE")
+    result, (kai, bot, active) = one(
+        store, "kai@example.com", "bot@example.com", "ACTIVE"
+    )
 
     check([result])
 

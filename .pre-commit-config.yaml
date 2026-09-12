@@ -1,0 +1,24 @@
+# Optional local gate mirroring the `lint` job in .github/workflows/ci.yml.
+#   uvx pre-commit install
+# Revisions are pinned; `uvx pre-commit autoupdate` moves them.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.7
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.13
+    hooks:
+      # Keeps uv.lock in step with pyproject.toml, which `uv sync --locked` checks in CI.
+      - id: uv-lock
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

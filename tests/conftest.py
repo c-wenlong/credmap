@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import textwrap
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from credmap.registry import BUILTIN
 
@@ -32,13 +34,16 @@ def override_vars() -> tuple[str, ...]:
             found.update(v for v in (spec.env, spec.root_env) if v)
     return tuple(sorted(found))
 
-import pytest
 
 # Sentinels. If any of these ever reaches default output, the leak test fails.
 AWS_SECRET = "FAKEwJalrXUtnFEMIKAAABBBCCCDDDEEEFFFGGGH"  # 40 chars, like a real one
-GH_TOKEN = "ghox_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE000"  # length of a real one, prefix broken
+GH_TOKEN = (
+    "ghox_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE000"  # length of a real one, prefix broken
+)
 NETRC_PASSWORD = "FAKE-netrc-password-0123456789"
-HF_TOKEN = "hfx_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0"  # length of a real one, prefix broken
+HF_TOKEN = (
+    "hfx_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0"  # length of a real one, prefix broken
+)
 ADC_REFRESH = "1//FAKE-refresh-token-abcdefghijklmnop"
 
 # Sentinels that live in a *parseable* field, so `show --reveal` can print them.
@@ -72,7 +77,7 @@ AWS_KEY_ID = "AKIAFAKEFAKEFAKEFAKE"  # an identifier — must stay visible
 
 
 def _iso(delta_days: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=delta_days)).strftime(
+    return (datetime.now(UTC) + timedelta(days=delta_days)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
 
@@ -146,7 +151,10 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     con.execute("CREATE TABLE credentials (account_id TEXT PRIMARY KEY, value BLOB)")
     con.executemany(
         "INSERT INTO credentials VALUES (?, ?)",
-        [("someone@example.com", b"fake"), ("robot@example.iam.gserviceaccount.com", b"fake")],
+        [
+            ("someone@example.com", b"fake"),
+            ("robot@example.iam.gserviceaccount.com", b"fake"),
+        ],
     )
     con.commit()
     con.close()
@@ -241,7 +249,11 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
 
     # --- ssh key directory ---
-    _write(home / ".ssh/id_ed25519.pub", "ssh-ed25519 AAAAFAKEKEY fake@example.com\n", 0o644)
+    _write(
+        home / ".ssh/id_ed25519.pub",
+        "ssh-ed25519 AAAAFAKEKEY fake@example.com\n",
+        0o644,
+    )
     _write(home / ".ssh/id_ed25519", "FAKE PRIVATE KEY\n")
     (home / ".ssh").chmod(0o700)
 
