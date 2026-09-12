@@ -8,6 +8,8 @@ from :mod:`credmap.model`.
 
 from __future__ import annotations
 
+import os
+import shutil
 import textwrap
 import threading
 from pathlib import Path
@@ -35,6 +37,27 @@ from credmap.model import (
 # --------------------------------------------------------------------------
 
 
+# The stub scripts shell out to a handful of coreutils. Those sit in /usr/bin
+# on a developer machine and in the nix store inside a flake build sandbox,
+# where /usr/bin does not exist, so the fallback is resolved rather than
+# assumed. Only these directories are added, so a real provider CLI somewhere
+# else on PATH still cannot be the thing that answers.
+_STUB_UTILS = ("sh", "cat", "touch", "sleep", "yes", "head")
+_FALLBACK_PATH = os.pathsep.join(
+    dict.fromkeys(
+        [
+            "/usr/bin",
+            "/bin",
+            *(
+                os.path.dirname(found)
+                for found in (shutil.which(name) for name in _STUB_UTILS)
+                if found
+            ),
+        ]
+    )
+)
+
+
 @pytest.fixture
 def stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Write an executable stub CLI and make it the only one on PATH.
@@ -44,7 +67,7 @@ def stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{_FALLBACK_PATH}")
 
     def make(name: str, body: str) -> Path:
         script = bin_dir / name

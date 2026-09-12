@@ -36,7 +36,11 @@
 
           build-system = with pkgs.python3Packages; [ hatchling ];
           dependencies = with pkgs.python3Packages; [ pyyaml ];
-          nativeCheckInputs = with pkgs.python3Packages; [ pytestCheckHook ];
+          # coreutils: the liveness tests write stub CLIs that call sleep,
+          # yes, head, cat and touch. stdenv supplies them, but the tests
+          # depend on them, so declare it.
+          nativeCheckInputs = [ pkgs.coreutils ]
+            ++ (with pkgs.python3Packages; [ pytestCheckHook ]);
           pythonImportsCheck = [ "credmap" ];
 
           meta = {

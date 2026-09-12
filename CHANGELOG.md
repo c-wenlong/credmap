@@ -33,6 +33,7 @@ rewritten as `contextlib.suppress`, and long string literals split.
 - pytest now runs with `filterwarnings = ["error"]`, `--strict-markers`, `--strict-config` and `xfail_strict`, so a warning is a failure.
 - Both workflows sync with `uv sync --locked` instead of `--frozen`, which turns a `uv.lock` that has drifted from `pyproject.toml` into a CI failure rather than a silent skip.
 - `actions/checkout` to v7, `astral-sh/setup-uv` to v10.1.0, and the nix job to `DeterminateSystems/determinate-nix-action@v3`.
+- The liveness tests resolve the fallback `PATH` for their stub CLIs instead of hardcoding `/usr/bin:/bin`, which does not exist inside a nix build sandbox on Linux.
 
 ## 0.1.4
 
