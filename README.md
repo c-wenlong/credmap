@@ -12,7 +12,7 @@ credmap
 
 <p align="center">
   <a href="https://github.com/c-wenlong/credmap/actions/workflows/ci.yml"><img src="https://github.com/c-wenlong/credmap/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://app.codecov.io/gh/c-wenlong/credmap"><img src="https://codecov.io/gh/c-wenlong/credmap/graph/badge.svg?branch=main" alt="Coverage"></a>
+  <a href="https://app.codecov.io/gh/c-wenlong/credmap"><img src="https://codecov.io/gh/c-wenlong/credmap/graph/badge.svg?token=6Z35ZNY7SK&amp;branch=main" alt="Coverage"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+"></a>
   <img src="https://img.shields.io/badge/deps-PyYAML%20only-brightgreen.svg" alt="deps: PyYAML only">

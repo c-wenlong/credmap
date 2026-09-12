@@ -12,6 +12,7 @@ rewritten as `contextlib.suppress`, and long string literals split.
 ### Documentation
 
 - README gains a header card: banner, badges, and a nav row to the docs.
+- The Codecov badge carries the repository's read-only graphing token, so it renders a coverage figure while the repository is private instead of reading "unknown".
 - Doc audit against the code. The corrections:
   - The test count was stale at 65 and is 230.
   - The formats were counted as six and there are ten, under four base directories rather than three.
