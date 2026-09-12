@@ -1,0 +1,87 @@
+name: Bug report
+description: Report something credmap got wrong
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Redact before you paste.** credmap masks secrets
+        by default, but paths, profile names and hostnames can still identify you,
+        and `show --reveal` output is not safe to share at all. Never attach a real
+        credential file: `tests/conftest.py` shows how to build a synthetic one.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did credmap do, and what did you expect instead?
+      placeholder: I ran `credmap show aws` and the profile was listed as dead, but it works.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The failing command and its output
+      description: >-
+        Paste the exact command and what it printed. Adding `--json` usually makes
+        the problem easier to see. Redact anything you would not post publicly.
+      render: shell
+      placeholder: |
+        $ credmap doctor --json
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: What has to exist on the machine for this to happen?
+      placeholder: |
+        1. Have `~/.aws/credentials` with two profiles
+        2. Run `credmap show aws`
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        OS, Python version, and the credmap version from `credmap --version`
+        (or `uv run credmap --version` from a checkout).
+      placeholder: |
+        - OS: macOS 15.5
+        - Python: 3.13.8
+        - credmap: 0.1.4
+        - Installed via: nix / uv tool / checkout
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Registry / store definitions
+        - Path resolution (env overrides, XDG)
+        - Parsers (a credential file format)
+        - Redaction / masking
+        - Liveness probes (--check)
+        - doctor findings
+        - Output / JSON
+        - Packaging (nix, uv, wheel)
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have redacted secrets, and this report contains no real credential.
+          required: true

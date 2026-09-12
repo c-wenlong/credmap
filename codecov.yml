@@ -1,0 +1,21 @@
+# https://docs.codecov.com/docs/codecovyml-reference
+#
+# Coverage measured 91.7% (branch coverage on, 230 tests) at the time this
+# file landed. The patch target sits a little under that: a new file should
+# not be the one that drags the number down, but a genuinely awkward branch
+# should not block a merge either.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.5%
+    patch:
+      default:
+        target: 85%
+        threshold: 0%
+
+comment:
+  layout: "diff, flags, files"
+  # No comment on a PR that does not move coverage.
+  require_changes: true

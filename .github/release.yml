@@ -1,0 +1,17 @@
+# Shapes the notes `gh release create --generate-notes` writes in release.yml.
+# Labels are matched against merged pull requests since the previous tag.
+changelog:
+  exclude:
+    authors:
+      - dependabot
+  categories:
+    - title: Security
+      labels:
+        - security
+    - title: Fixes
+      labels:
+        - bug
+        - bugfix
+    - title: Other
+      labels:
+        - "*"

@@ -1,0 +1,59 @@
+name: Feature request
+description: Suggest a store, a parser, a probe, or anything else
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        New credential stores are the most useful thing to ask for. A store is a
+        data entry in `src/credmap/registry.py`, so "credmap does not know about
+        X" is usually a small change. See
+        [docs/stores.md](https://github.com/c-wenlong/credmap/blob/main/docs/stores.md)
+        for what is already covered.
+
+        **Do not paste a real credential file** to show the format. Redact it, or
+        describe the field names only.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to find out about your machine that credmap cannot tell you?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed behaviour
+      description: >-
+        What should credmap print? For a new store, list the paths it lives at, the
+        environment variable that relocates it, the file format, and which field
+        names are secrets versus identifiers.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New store / provider
+        - New file format parser
+        - New liveness probe (--check)
+        - Redaction rules
+        - doctor checks
+        - Output / JSON
+        - Docs / DX
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >-
+        Can you already do this with a `~/.config/credmap/registry.toml` overlay?
+        See [docs/registry-toml.md](https://github.com/c-wenlong/credmap/blob/main/docs/registry-toml.md).
