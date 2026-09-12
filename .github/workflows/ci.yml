@@ -5,24 +5,130 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to the same branch supersedes whatever is still running for it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: no job gets a writable GITHUB_TOKEN, and checkout is told
+# not to leave one on disk for later steps to pick up.
+# https://docs.github.com/en/actions/security-for-github-actions/security-hardening-for-github-actions
 permissions:
   contents: read
 
 jobs:
   test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: uv sync --frozen
+      - run: uv sync --locked
       - run: uv run pytest -q
       - run: uv build --no-sources
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # Static analysis of the workflows themselves: credential persistence,
+      # template injection, over-broad permissions. Run through the locked dev
+      # group, not uvx, so a new zizmor release cannot turn a green commit red
+      # without a lockfile change.
+      - run: uv run zizmor .github/workflows
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked
+      - name: Run the suite under coverage
+        run: uv run pytest -q --cov=credmap --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage to Codecov
+        # Pinned to a commit, not a tag: this is the only step handed a secret,
+        # so a moved tag must not be able to change the code that reads it.
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          # Coverage is a nice-to-have. A missing CODECOV_TOKEN or an
+          # unreachable Codecov must not turn a green suite red.
+          fail_ci_if_error: false
+
+  package:
+    name: Built wheel smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          python-version: "3.13"
+      - name: Build the wheel
+        run: uv build --no-sources
+      - name: Install the wheel into a fresh venv and run it
+        # Runs the installed `credmap` entry point, not the source tree, so a
+        # module that exists in src/ but is missing from the wheel is caught.
+        # $HOME is a temp dir: a scan reads the real home otherwise.
+        run: |
+          uv venv /tmp/credmap-wheel
+          uv pip install --python /tmp/credmap-wheel/bin/python dist/credmap_cli-*.whl
+          test_home="$(mktemp -d)"
+          cd /tmp
+          HOME="$test_home" /tmp/credmap-wheel/bin/credmap --help
+          HOME="$test_home" /tmp/credmap-wheel/bin/credmap --version
+          HOME="$test_home" /tmp/credmap-wheel/bin/credmap --json
+          HOME="$test_home" /tmp/credmap-wheel/bin/credmap doctor --json
+
+  nix:
+    name: Nix flake build and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # determinate-nix-action is the Action Determinate tags per Nix release
+      # and the one they point new users at; nix-installer-action has no such
+      # per-version tags. FlakeHub is not used, so no id-token permission.
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Build the package (runs the pytest suite in the sandbox)
+        run: nix build --print-build-logs
+      - name: Exercise the built binary
+        run: |
+          test_home="$(mktemp -d)"
+          HOME="$test_home" ./result/bin/credmap --help
+          HOME="$test_home" ./result/bin/credmap --json
+      # The flake declares no `checks` output; this validates that every
+      # package, app and devShell still evaluates.
+      - name: nix flake check
+        run: nix flake check --print-build-logs

@@ -18,7 +18,7 @@ import json
 import sqlite3
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -133,7 +133,7 @@ def parse_timestamp(raw: Any) -> datetime | None:
             dt = datetime.fromisoformat(s) if fmt is None else datetime.strptime(s, fmt)
         except (ValueError, TypeError):
             continue
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     return None
 
 
@@ -141,7 +141,7 @@ def expiry_status(raw: Any) -> str:
     dt = parse_timestamp(raw)
     if dt is None:
         return UNKNOWN
-    return EXPIRED if dt < datetime.now(timezone.utc) else VALID
+    return EXPIRED if dt < datetime.now(UTC) else VALID
 
 
 def _flatten(value: Any) -> dict[str, Any]:

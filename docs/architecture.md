@@ -1,6 +1,6 @@
 # Architecture
 
-credmap is about 2,300 lines of Python in eleven modules with one runtime
+credmap is about 3,000 lines of Python in twelve modules with one runtime
 dependency, PyYAML. The design has one load-bearing seam: **the registry is
 data, the parsers are behaviour.** Adding a provider is a `Store(...)` literal
 and nothing else. If provider-specific code appears in `scan.py` or
@@ -11,7 +11,7 @@ and nothing else. If provider-specific code appears in `scan.py` or
 | Module | Responsibility |
 |---|---|
 | `registry.py` | The data: one `Store` per provider, plus the `registry.toml` overlay loader and `find()` |
-| `model.py` | Dataclasses for the registry schema (`Store`, `PathSpec`, `Probe`, `Bloat`) and the result schema (`StoreResult`, `FoundPath`, `Profile`, `ParseResult`) |
+| `model.py` | Dataclasses for the registry schema (`Store`, `PathSpec`, `Probe`) and the result schema (`StoreResult`, `FoundPath`, `Profile`, `Finding`). `ParseResult` lives in `parsers.py` |
 | `resolve.py` | Env override, then XDG, then template. The only place path rules live |
 | `parsers.py` | One function per format, all wrapped so they never raise |
 | `redact.py` | The masking chokepoint |

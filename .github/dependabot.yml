@@ -1,0 +1,45 @@
+# Dependabot configuration.
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+#
+# Two ecosystems. `uv` reads uv.lock and pyproject.toml, which matters here
+# because CI runs `uv sync --locked` and a lockfile that has drifted from
+# pyproject.toml fails the build.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    # "/" means .github/workflows/, not the repository root.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # One pull request for all action bumps rather than one per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Minor and patch bumps land as one PR; a major gets its own, because it
+    # is the one that needs reading.
+    groups:
+      python-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"

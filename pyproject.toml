@@ -32,8 +32,9 @@ credmap = "credmap.cli:main"
 [project.urls]
 Homepage = "https://github.com/c-wenlong/credmap"
 Documentation = "https://github.com/c-wenlong/credmap/tree/main/docs"
+Repository = "https://github.com/c-wenlong/credmap"
 Issues = "https://github.com/c-wenlong/credmap/issues"
-Changelog = "https://github.com/c-wenlong/credmap/releases"
+Changelog = "https://github.com/c-wenlong/credmap/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -43,7 +44,31 @@ build-backend = "hatchling.build"
 packages = ["src/credmap"]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-cov>=6.0", "ruff>=0.16", "zizmor>=1.30"]
 
 [tool.pytest.ini_options]
+minversion = "8.0"
 testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.coverage.run]
+branch = true
+source = ["credmap"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+precision = 1
+exclude_also = [
+  "if __name__ == \"__main__\":",
+  "if TYPE_CHECKING:",
+]

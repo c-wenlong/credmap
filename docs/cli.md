@@ -8,7 +8,7 @@ or with only flags, runs `scan`.
 | `scan` | none | `--json`, `--all`, `--check` | Walk every registry store, stat and parse each path, print grouped output. Absent stores are hidden unless `--all`. |
 | `where` | `<query>` | `--json` | Look a provider up by id, alias, name, or kind, then print its paths (present or not). |
 | `show` | `<store>` | `--json`, `--check`, `--reveal` | Every profile and field for one store, secrets masked. |
-| `paths` | none | `--json`, `--found` | Flat table of every registered path. `--found` hides absent ones in the table only. |
+| `paths` | none | `--json`, `--found` | Flat table of every registered path. `--found` drops absent paths from the table and from `--json` alike. |
 | `doctor` | none | `--json`, `--check` | Anomalies only. Exits 1 when a credential is provably dead. |
 
 Global flags: `-h`/`--help` and `--version`. `--json` is per-verb, so it goes

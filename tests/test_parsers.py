@@ -11,7 +11,7 @@ import pytest
 
 from credmap.model import EXPIRED, PathSpec
 from credmap.parsers import parse_ini, parse_inidir, parse_sqlite_gcloud
-from credmap.registry import find, load
+from credmap.registry import load
 from credmap.scan import scan, scan_store
 
 

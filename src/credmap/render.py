@@ -6,7 +6,8 @@ import json
 import os
 import re
 import sys
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from .model import (
     DEAD,
@@ -86,7 +87,10 @@ def table(headers: Sequence[str], rows: Sequence[Sequence[str]], style: Style) -
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], vis_len(cell))
     lines = [
-        "  " + "  ".join(style.dim(pad(h.upper(), widths[i])) for i, h in enumerate(headers)).rstrip()
+        "  "
+        + "  ".join(
+            style.dim(pad(h.upper(), widths[i])) for i, h in enumerate(headers)
+        ).rstrip()
     ]
     for row in rows:
         lines.append(
@@ -141,7 +145,9 @@ def summarise_profiles(profiles: list[Profile], style: Style) -> str:
 # --------------------------------------------------------------------------
 
 
-def render_scan(results: list[StoreResult], style: Style, show_all: bool = False) -> str:
+def render_scan(
+    results: list[StoreResult], style: Style, show_all: bool = False
+) -> str:
     out: list[str] = []
     found = [r for r in results if r.found]
     missing = [r for r in results if not r.found]
@@ -197,7 +203,9 @@ def render_scan(results: list[StoreResult], style: Style, show_all: bool = False
     return "\n".join(out).rstrip() + "\n"
 
 
-def render_paths(results: list[StoreResult], style: Style, only_found: bool = False) -> str:
+def render_paths(
+    results: list[StoreResult], style: Style, only_found: bool = False
+) -> str:
     rows = []
     for result in results:
         for fp in result.paths:
@@ -222,7 +230,8 @@ def render_paths(results: list[StoreResult], style: Style, only_found: bool = Fa
 
 def render_show(result: StoreResult, style: Style, reveal: bool = False) -> str:
     store = result.store
-    out = [f"{style.bold(store.name)} {style.dim('(' + store.id + ', ' + store.kind + ')')}"]
+    tag = style.dim(f"({store.id}, {store.kind})")
+    out = [f"{style.bold(store.name)} {tag}"]
     if store.note:
         out.append(f"  {style.dim('note:')} {store.note}")
     if store.docs:
@@ -237,7 +246,8 @@ def render_show(result: StoreResult, style: Style, reveal: bool = False) -> str:
         if fp.mode is not None:
             meta.append(f"{fp.mode:04o}")
         meta.append(_size(fp.size))
-        out.append(f"  {style.bold(display(fp.path))}  {style.dim('[' + ', '.join(meta) + ']')}")
+        meta_tag = style.dim(f"[{', '.join(meta)}]")
+        out.append(f"  {style.bold(display(fp.path))}  {meta_tag}")
         if fp.note:
             out.append(f"    {style.yellow('!')} {fp.note}")
         if fp.error:
@@ -273,7 +283,8 @@ def render_findings(findings: list[Finding], style: Style) -> str:
     out = []
     for finding in sorted(findings, key=lambda f: order.get(f.level, 3)):
         paint = colour.get(finding.level, style.dim)
-        out.append(f"{paint(mark.get(finding.level, '·'))} {style.bold(finding.store)}  {finding.message}")
+        bullet = paint(mark.get(finding.level, "·"))
+        out.append(f"{bullet} {style.bold(finding.store)}  {finding.message}")
         if finding.fix:
             for line in finding.fix.splitlines():
                 out.append(f"    {style.dim(line)}")

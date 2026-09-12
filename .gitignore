@@ -7,9 +7,16 @@ __pycache__/
 
 # test / build artifacts
 .pytest_cache/
+.ruff_cache/
 dist/
 build/
 *.egg-info/
+
+# coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # never commit anything that looks like a credential — fixtures are generated
 # in tests/conftest.py, not stored
@@ -20,3 +27,6 @@ registry.toml
 
 # nix build output symlink
 result
+
+# macos finder metadata
+.DS_Store

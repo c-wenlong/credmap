@@ -9,8 +9,8 @@ run it, and what to do before you paste its output anywhere.
 These properties were checked by reading the code and by exercising it
 against synthetic homes in the 2026-09-09 review.
 
-- **No write path.** The package contains no bare `open()`, no `write_text`, no `unlink`, `rename`, `shutil` or `mkdir`. Output goes through `sys.stdout.write` and nothing else. The single SQLite connection is opened read-only via URI; an insert through it fails with "attempt to write a readonly database", and opening it creates no journal or WAL sidecar, so a scan cannot lock gcloud's database.
-- **Offline by default.** `subprocess` is imported only in `liveness.py`. No module imports `socket`, `urllib` or an HTTP client. Nothing runs unless `--check` is given.
+- **No write path.** The package never opens a file for writing: the three `Path.open` calls are read-only, and there is no `write_text`, `unlink`, `rename`, `shutil` or `mkdir`. Results go to `sys.stdout.write`; the only other output is a handful of diagnostics printed to stderr. The single SQLite connection is opened read-only via URI; an insert through it fails with "attempt to write a readonly database", and opening it creates no journal or WAL sidecar, so a scan cannot lock gcloud's database.
+- **Offline by default.** `subprocess` is imported only in `liveness.py`. No module imports `socket` or an HTTP client, and the one `urllib` import is `urllib.parse` in `parsers.py`, used to percent-quote the SQLite URI. Nothing runs unless `--check` is given.
 - **Subprocess handling is correct.** Probes run without a shell. A profile name is one argv element, so `;`, backticks and `$()` in a name are inert. The hard timeout fires even when the child leaves a grandchild holding the output pipe open.
 - **One redaction chokepoint.** Both the table renderer and the JSON serialiser call the same `scrub`, which recurses into nested mappings and lists. Every leak found in review comes from a channel that bypasses `fields`, not from a hole in `scrub`.
 - **Default-deny masking works for every shipped store.** All 26 built-ins were walked with their real field names. Every genuine secret is masked today, including ones no `secret_fields` entry declares: the Azure MSAL cache, the Claude Code OAuth blob, Pulumi's access-token map, gh's nested `oauth_token`.
@@ -50,7 +50,7 @@ than an exit-1 error, because `doctor` fails only on something provable. See
 ## Things to know
 
 - **Symlinks are followed.** A `~/.aws/credentials` symlinked elsewhere is read, and the permission audit reports the target's real mode. This is by design; it is your home.
-- **The overlay has your full authority.** `~/.config/credmap/registry.toml` can point credmap at any readable file and can declare any command for `--check`. A group- or world-writable overlay file is ignored with a warning; the directory is not checked, so keep it writable only by you.
+- **The overlay has your full authority.** `~/.config/credmap/registry.toml` can point credmap at any readable file and can declare any command for `--check`. A group- or world-writable overlay is ignored with a warning, and its parent directory is checked by the same rule, since write permission on a directory is permission to replace the file in it.
 - **The fingerprint reveals the last four characters** of any secret of 16 characters or more, plus its length. Shorter values show only their length.
 - **Provider CLI output is masked by shape.** Under `--check`, any run of 20 or more token-alphabet characters in a CLI's stdout or stderr is fingerprinted before it is shown, and only the first 64 KiB is read.
 - **Terminal transcripts persist.** Default output is designed to be safe to paste. `--reveal` output is not, and is never implied.

@@ -12,6 +12,7 @@ thread pool under an overall deadline.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import json
 import os
 import re
@@ -22,7 +23,6 @@ import time
 
 from .model import DEAD, LIVE, NO_CLI, UNKNOWN, Profile, Store, StoreResult
 from .redact import scrub_text
-
 
 # Section names that are configuration blocks, not credential identities.
 NON_PROFILE = {"sso-session", "services"}
@@ -127,10 +127,8 @@ def _drain(stream, sink: list[bytes], limit: int) -> None:
     except (OSError, ValueError):
         pass
     finally:
-        try:
+        with contextlib.suppress(OSError):
             stream.close()
-        except OSError:
-            pass
 
 
 def _kill(proc: subprocess.Popen) -> None:
@@ -145,10 +143,8 @@ def _kill(proc: subprocess.Popen) -> None:
             return
         except OSError:
             pass
-    try:
+    with contextlib.suppress(OSError):
         proc.kill()
-    except OSError:
-        pass
 
 
 def _run(argv: list[str], timeout: int) -> tuple[str | None, str | None]:
@@ -168,8 +164,12 @@ def _run(argv: list[str], timeout: int) -> tuple[str | None, str | None]:
     out_chunks: list[bytes] = []
     err_chunks: list[bytes] = []
     readers = [
-        threading.Thread(target=_drain, args=(proc.stdout, out_chunks, MAX_OUTPUT), daemon=True),
-        threading.Thread(target=_drain, args=(proc.stderr, err_chunks, MAX_OUTPUT), daemon=True),
+        threading.Thread(
+            target=_drain, args=(proc.stdout, out_chunks, MAX_OUTPUT), daemon=True
+        ),
+        threading.Thread(
+            target=_drain, args=(proc.stderr, err_chunks, MAX_OUTPUT), daemon=True
+        ),
     ]
     for reader in readers:
         reader.start()
@@ -180,10 +180,8 @@ def _run(argv: list[str], timeout: int) -> tuple[str | None, str | None]:
     except subprocess.TimeoutExpired:
         timed_out = True
         _kill(proc)
-        try:
+        with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=JOIN_GRACE)
-        except subprocess.TimeoutExpired:
-            pass
     finally:
         for reader in readers:
             reader.join(JOIN_GRACE)
@@ -323,7 +321,9 @@ def check(results: list[StoreResult], workers: int = 8) -> None:
             budget = max(budget, probe.timeout)
             if any("{profile}" in arg for arg in probe.argv):
                 for profiles in by_name.values():
-                    jobs.append((pool.submit(_probe_profile, result.store, profiles), profiles))
+                    jobs.append(
+                        (pool.submit(_probe_profile, result.store, profiles), profiles)
+                    )
             else:
                 every = [prof for profiles in by_name.values() for prof in profiles]
                 jobs.append((pool.submit(_probe_store, result), every))

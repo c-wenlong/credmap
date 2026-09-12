@@ -9,7 +9,7 @@ reverted. Findings 30 to 32 were found while fixing the others.
 Everything is closed except one row, which is a decision rather than an
 omission.
 
-## Open by decision
+## Open by decision, and the findings found late
 
 | # | Where | Problem | Decision |
 |---|---|---|---|

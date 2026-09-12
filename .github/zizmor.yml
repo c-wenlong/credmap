@@ -1,0 +1,12 @@
+# Actions are pinned to tags, not commit hashes, and Dependabot bumps them
+# (.github/dependabot.yml). Hash pinning is stronger against a moved tag, but
+# it costs the readability that makes a pin bump reviewable, and every action
+# used here is first-party GitHub, Astral, Determinate or PyPA. The one
+# exception is codecov/codecov-action, which is the only step handed a secret
+# and is pinned to a commit in ci.yml. Revisit if another third-party action
+# is added, and hash-pin anything that receives a secret.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin

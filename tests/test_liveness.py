@@ -8,6 +8,8 @@ from :mod:`credmap.model`.
 
 from __future__ import annotations
 
+import os
+import shutil
 import textwrap
 import threading
 from pathlib import Path
@@ -30,10 +32,30 @@ from credmap.model import (
     StoreResult,
 )
 
-
 # --------------------------------------------------------------------------
 # harness
 # --------------------------------------------------------------------------
+
+
+# The stub scripts shell out to a handful of coreutils. Those sit in /usr/bin
+# on a developer machine and in the nix store inside a flake build sandbox,
+# where /usr/bin does not exist, so the fallback is resolved rather than
+# assumed. Only these directories are added, so a real provider CLI somewhere
+# else on PATH still cannot be the thing that answers.
+_STUB_UTILS = ("sh", "cat", "touch", "sleep", "yes", "head")
+_FALLBACK_PATH = os.pathsep.join(
+    dict.fromkeys(
+        [
+            "/usr/bin",
+            "/bin",
+            *(
+                os.path.dirname(found)
+                for found in (shutil.which(name) for name in _STUB_UTILS)
+                if found
+            ),
+        ]
+    )
+)
 
 
 @pytest.fixture
@@ -45,7 +67,7 @@ def stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{_FALLBACK_PATH}")
 
     def make(name: str, body: str) -> Path:
         script = bin_dir / name
@@ -68,7 +90,9 @@ def make_store(argv, extract=None, timeout=5) -> Store:
 
 def make_path(profiles, role="secrets", exists=True, identities=None) -> FoundPath:
     spec = PathSpec("~/test", fmt="ini", role=role, identities=identities)
-    return FoundPath(spec=spec, path=Path("/nonexistent/test"), exists=exists, profiles=profiles)
+    return FoundPath(
+        spec=spec, path=Path("/nonexistent/test"), exists=exists, profiles=profiles
+    )
 
 
 def make_result(store: Store, *paths: FoundPath) -> StoreResult:
@@ -172,7 +196,7 @@ def test_extract_becomes_the_detail(stub):
 def test_extract_is_scrubbed(stub):
     """`extract` is an overlay-controlled key into arbitrary stdout."""
     token = "A" * 40
-    stub("prov", f"echo '{{\"Account\": \"{token}\"}}'\n")
+    stub("prov", f'echo \'{{"Account": "{token}"}}\'\n')
     store = make_store(["prov", "--profile", "{profile}"], extract="Account")
     result, (prof,) = one(store, "default")
 
@@ -259,7 +283,9 @@ def test_json_output_matches_account_values_exactly(stub):
     """`gcloud auth list --format=json` names the accounts; use them."""
     stub("prov", f"cat <<'EOF'\n{GCLOUD_JSON.strip()}\nEOF\n")
     store = make_store(["prov", "auth", "list", "--format=json"])
-    result, (kai, bot, active) = one(store, "kai@example.com", "bot@example.com", "ACTIVE")
+    result, (kai, bot, active) = one(
+        store, "kai@example.com", "bot@example.com", "ACTIVE"
+    )
 
     check([result])
 

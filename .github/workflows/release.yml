@@ -12,17 +12,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
       # Guards the three places the version lives: the tag, pyproject.toml,
       # and src/credmap/__init__.py.
       - name: Version matches tag
         run: |
           test "v$(uv version --short)" = "$GITHUB_REF_NAME"
           grep -q "__version__ = \"$(uv version --short)\"" src/credmap/__init__.py
-      - run: uv sync --frozen
+      - run: uv sync --locked
       - run: uv run pytest -q
       - run: uv build --no-sources
       - uses: actions/upload-artifact@v7

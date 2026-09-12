@@ -76,11 +76,22 @@ AWS = Store(
         }
     ),
     probe=Probe(
-        ("aws", "sts", "get-caller-identity", "--profile", "{profile}", "--output", "json"),
+        (
+            "aws",
+            "sts",
+            "get-caller-identity",
+            "--profile",
+            "{profile}",
+            "--output",
+            "json",
+        ),
         extract="Account",
     ),
     docs="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html",
-    fix="aws configure           # static IAM keys\naws configure sso      # IAM Identity Center",
+    fix=(
+        "aws configure           # static IAM keys\n"
+        "aws configure sso      # IAM Identity Center"
+    ),
 )
 
 GCLOUD = Store(
@@ -136,7 +147,9 @@ GCLOUD_ADC = Store(
         ),
     ),
     secret_fields=frozenset({"client_secret", "refresh_token", "private_key"}),
-    id_fields=frozenset({"client_id", "client_email", "project_id", "quota_project_id"}),
+    id_fields=frozenset(
+        {"client_id", "client_email", "project_id", "quota_project_id"}
+    ),
     docs="https://cloud.google.com/docs/authentication/application-default-credentials",
     note="what SDKs pick up automatically; separate lifecycle from gcloud CLI login",
     fix="gcloud auth application-default login",
@@ -167,7 +180,10 @@ AZURE = Store(
     ),
     probe=Probe(("az", "account", "show", "--output", "json"), extract="id"),
     docs="https://learn.microsoft.com/cli/azure/authenticate-azure-cli",
-    note="~/.azure is also created by VS Code extensions — the profile file is the real marker",
+    note=(
+        "~/.azure is also created by VS Code extensions — "
+        "the profile file is the real marker"
+    ),
     fix="az login",
 )
 
@@ -229,7 +245,9 @@ DOCKER = Store(
     ),
     secret_fields=frozenset({"auth", "password", "identitytoken"}),
     docs="https://docs.docker.com/reference/cli/docker/login/",
-    note="with a credsStore set, the file holds no secrets — they're in the OS keychain",
+    note=(
+        "with a credsStore set, the file holds no secrets — they're in the OS keychain"
+    ),
     fix="docker login",
 )
 
@@ -291,7 +309,14 @@ GNUPG = Store(
     kind="vcs",
     aliases=("gpg",),
     paths=(
-        PathSpec("~/.gnupg", fmt="opaque", role="keys", root_env="GNUPGHOME", rel=".", marker=True),
+        PathSpec(
+            "~/.gnupg",
+            fmt="opaque",
+            role="keys",
+            root_env="GNUPGHOME",
+            rel=".",
+            marker=True,
+        ),
     ),
     fix="gpg --list-secret-keys",
 )
@@ -365,7 +390,9 @@ CARGO = Store(
     kind="pkg",
     aliases=("rust", "crates"),
     paths=(
-        PathSpec("~/.cargo/credentials.toml", fmt="opaque", role="secrets", marker=True),
+        PathSpec(
+            "~/.cargo/credentials.toml", fmt="opaque", role="secrets", marker=True
+        ),
     ),
     fix="cargo login",
 )
@@ -433,7 +460,11 @@ STRIPE = Store(
     id="stripe",
     name="Stripe CLI",
     kind="paas",
-    paths=(PathSpec("{config}/stripe/config.toml", fmt="opaque", role="secrets", marker=True),),
+    paths=(
+        PathSpec(
+            "{config}/stripe/config.toml", fmt="opaque", role="secrets", marker=True
+        ),
+    ),
     fix="stripe login",
 )
 
@@ -443,8 +474,15 @@ CLOUDFLARE = Store(
     kind="paas",
     aliases=("cloudflare", "cf"),
     paths=(
-        PathSpec("{config}/.wrangler/config/default.toml", fmt="opaque", role="secrets", marker=True),
-        PathSpec("~/.wrangler/config/default.toml", fmt="opaque", role="secrets", marker=True),
+        PathSpec(
+            "{config}/.wrangler/config/default.toml",
+            fmt="opaque",
+            role="secrets",
+            marker=True,
+        ),
+        PathSpec(
+            "~/.wrangler/config/default.toml", fmt="opaque", role="secrets", marker=True
+        ),
     ),
     fix="wrangler login",
 )
@@ -471,7 +509,11 @@ CLAUDE = Store(
     name="Claude Code",
     kind="ai",
     aliases=("anthropic",),
-    paths=(PathSpec("~/.claude/.credentials.json", fmt="json", role="secrets", marker=True),),
+    paths=(
+        PathSpec(
+            "~/.claude/.credentials.json", fmt="json", role="secrets", marker=True
+        ),
+    ),
     secret_fields=frozenset({"accessToken", "refreshToken"}),
     fix="claude login",
 )
@@ -536,6 +578,7 @@ def _unsafe_overlay(path: Path) -> str:
     attacker chose. Both are checked by the same rule, and the message says
     which one is at fault so the reader knows what to chmod.
     """
+
     def mode_of(target: Path) -> int | None:
         try:
             return target.stat().st_mode & 0o777

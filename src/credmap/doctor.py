@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import shlex
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .model import DEAD, EXPIRED, NO_CLI, Finding, StoreResult
@@ -48,7 +48,7 @@ def _ago(raw: str | None) -> str:
     dt = parse_timestamp(raw)
     if dt is None:
         return ""
-    delta = datetime.now(timezone.utc) - dt
+    delta = datetime.now(UTC) - dt
     days = abs(delta.days)
     if days >= 1:
         return f"{days} day{'s' if days != 1 else ''} ago"

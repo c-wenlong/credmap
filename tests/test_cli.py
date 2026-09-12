@@ -74,7 +74,12 @@ def test_doctor_exits_nonzero_only_on_errors(fake_home, capsys):
 
 @pytest.mark.parametrize(
     "argv",
-    [("scan", "--json"), ("paths", "--json"), ("doctor", "--json"), ("where", "aws", "--json")],
+    [
+        ("scan", "--json"),
+        ("paths", "--json"),
+        ("doctor", "--json"),
+        ("where", "aws", "--json"),
+    ],
 )
 def test_json_output_parses(fake_home, capsys, argv):
     code, out = run(capsys, *argv)
