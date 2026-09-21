@@ -74,7 +74,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Pinned to a commit, not a tag: this is the only step handed a secret,
         # so a moved tag must not be able to change the code that reads it.
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
